@@ -42,21 +42,28 @@ let inApiCall = false;
 // ---------------------------------------------------------------------------
 
 async function llmCall(prompt) {
+  // 防御：ec-bridge 应传字符串，旧版可能传 { prompt, quietToLoud }
+  const promptText = typeof prompt === 'string' ? prompt : (prompt?.prompt || '');
+  if (!promptText) {
+    console.error('[Event Chronicle] ❌ llmCall 收到空 prompt:', typeof prompt, JSON.stringify(prompt).slice(0, 200));
+    throw new Error('Empty prompt — check ec-bridge callLLM()');
+  }
+
   const startTime = performance.now();
   const settings = getSettings();
   const ctx = getContext();
   const maxTokens = settings.overrideMaxTokens || 2048;
 
   console.log(`[Event Chronicle] 📤 LLM Call — ${new Date().toISOString()}`, {
-    promptLength: prompt.length,
-    estimatedTokens: Math.ceil(prompt.length / 3.5),
+    promptLength: promptText.length,
+    estimatedTokens: Math.ceil(promptText.length / 3.5),
     maxTokens: maxTokens,
   });
 
   // 对齐 Chronicle 扩展的完整 payload
   const payload = {
     type: 'quiet',
-    messages: [{ role: 'user', content: prompt }],
+    messages: [{ role: 'user', content: promptText }],
     temperature: 0,
     max_tokens: maxTokens,
     stream: false,
@@ -545,7 +552,7 @@ function setupWandMenu() {
   $('#ec_btn_extract').on('click', (e) => { e.stopPropagation(); manualExtract(); });
   $('#ec_btn_timeline').on('click', (e) => {
     e.stopPropagation();
-    const url = '/scripts/extensions/third-party/Event-Chronicle/timeline.html';
+    const url = '/scripts/extensions/third-party/st-event-chronicle/timeline.html';
     window.open(url, '_blank');
   });
 }

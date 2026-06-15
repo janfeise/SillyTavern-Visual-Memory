@@ -1,6 +1,7 @@
 // timeline.js — 时间线渲染 + 筛选
 (function() {
   var all = [], filtered = [];
+  var chatId = new URLSearchParams(location.search).get('chat') || '';
 
   function api() {
     // 新窗口（window.open）→ window.opener
@@ -13,7 +14,12 @@
   window.refresh = function() {
     var a = api();
     if (!a) { document.getElementById('ec_container').innerHTML = '<div class="ec-empty"><p>扩展未连接</p></div>'; return; }
-    all = a.getAllEvents() || [];
+    // 按当前聊天 ID 筛选事件，无 chatId 时回退到全部
+    if (chatId) {
+      all = a.getEvents(chatId) || [];
+    } else {
+      all = a.getAllEvents() || [];
+    }
     var locs = new Set(); all.forEach(function(e) { if (e.location) locs.add(e.location); });
     var sel = document.getElementById('flt_loc');
     sel.innerHTML = '<option value="">所有地点</option>';

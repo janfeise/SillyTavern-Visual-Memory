@@ -200,10 +200,12 @@ function getChatId() {
 
 function updateChroniclePrompt() {
   const settings = getSettings();
-  const events = ecBridge.getEvents(getChatId());
-  const promptText = buildMemoryPrompt(events, settings);
+  const promptText = ecBridge.getMemory(getChatId(), {
+    highlightThreshold: settings.highlightThreshold || 7,
+    title: 'Event Chronicle Memory',
+  });
 
-  console.log(`[Event Chronicle] 🔄 更新 Prompt 注入 — ${events.length} 个事件${promptText ? ', ' + promptText.length + ' 字符' : ', 空'}`);
+  console.log(`[Event Chronicle] 🔄 更新 Prompt 注入 — ${promptText ? promptText.length + ' 字符' : '空'}`);
 
   setExtensionPrompt(
     'event-chronicle',                    // key
@@ -213,29 +215,6 @@ function updateChroniclePrompt() {
     false,                                // scan = false
     extension_prompt_roles.SYSTEM,        // role = SYSTEM
   );
-}
-
-function buildMemoryPrompt(events, settings) {
-  if (!events || !events.length) return '';
-  const threshold = settings.highlightThreshold || 7;
-
-  // 按重要性排序 + 截断
-  const sorted = [...events]
-    .filter(e => (e.importance || 0) >= 1)
-    .sort((a, b) => (b.importance || 0) - (a.importance || 0) || (b.timestamp || 0) - (a.timestamp || 0))
-    .slice(0, 20);
-
-  if (!sorted.length) return '';
-
-  const lines = ['[Event Chronicle — Key Events]'];
-  for (const e of sorted) {
-    const dateStr = e.timestamp ? new Date(e.timestamp * 1000).toISOString().split('T')[0] : '????-??-??';
-    lines.push(`- [${dateStr}] ${e.title}`);
-  }
-
-  const result = lines.join('\n');
-  console.log(`[Event Chronicle] Prompt 注入: ${sorted.length} 个事件, ${result.length} 字符`);
-  return result;
 }
 
 // ---------------------------------------------------------------------------
@@ -623,7 +602,8 @@ function setupWandMenu() {
   $('#ec_btn_extract').on('click', (e) => { e.stopPropagation(); manualExtract(); });
   $('#ec_btn_timeline').on('click', (e) => {
     e.stopPropagation();
-    const url = '/scripts/extensions/third-party/st-event-chronicle/timeline.html';
+    const chatId = encodeURIComponent(getChatId());
+    const url = '/scripts/extensions/third-party/st-event-chronicle/timeline.html?chat=' + chatId;
     window.open(url, '_blank');
   });
 }

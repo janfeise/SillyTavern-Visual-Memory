@@ -22,7 +22,7 @@ const DEFAULT_SETTINGS = {
   overrideMaxTokens: 2048,
   batchSliceSize: 12,
   highlightThreshold: 7,
-  llmOverride: { model: '', temperature: 0, maxTokens: 2048 },
+  llmOverride: { chat_completion_source: '', model: '', custom_model: '', custom_url: '', temperature: 0, maxTokens: 2048 },
 };
 
 // ---------------------------------------------------------------------------
@@ -36,9 +36,32 @@ let lastProcessedMessageId = null;
 let lastExtractionTime = 0;
 /** @type {boolean} API call mutex lock */
 let inApiCall = false;
+let cachedOaiSettings = null;  // init() 时从 ST 后端拉取并缓存
 
 // ---------------------------------------------------------------------------
 // LLM 桥接（复用 ST 后端 API）
+// ---------------------------------------------------------------------------
+
+async function loadOaiSettings() {
+  try {
+    const res = await fetch('/api/settings/get', {
+      method: 'POST',
+      headers: getRequestHeaders(),
+      body: JSON.stringify({}),
+    });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    if (data.oai_settings) {
+      cachedOaiSettings = data.oai_settings;
+      console.log('[Event Chronicle] ✅ 已缓存 ST API 设置 — source=' + cachedOaiSettings.chat_completion_source + ', model=' + (cachedOaiSettings.chat_completion_source === 'custom' ? cachedOaiSettings.custom_model : cachedOaiSettings.openai_model));
+    } else {
+      console.warn('[Event Chronicle] ⚠ ST 后端返回的 settings 中没有 oai_settings，将使用 EC 自身覆盖设置');
+    }
+  } catch (err) {
+    console.warn('[Event Chronicle] ⚠ 无法从 ST 后端读取 oai_settings:', err.message, '— 将使用 EC 自身覆盖设置');
+  }
+}
+
 // ---------------------------------------------------------------------------
 
 async function llmCall(prompt) {
@@ -82,19 +105,43 @@ async function llmCall(prompt) {
     custom_include_headers: '',
   };
 
-  // 从 ST 全局读取 chat_completion_source 和 model
-  if (typeof oai_settings !== 'undefined') {
-    payload.chat_completion_source = oai_settings.chat_completion_source;
-    payload.model = oai_settings.chat_completion_source === 'custom'
-      ? (oai_settings.custom_model || oai_settings.openai_model)
-      : oai_settings.openai_model;
-    payload.custom_url = oai_settings.custom_url || '';
-    payload.custom_include_body = oai_settings.custom_include_body || '';
-    payload.custom_exclude_body = oai_settings.custom_exclude_body || '';
-    payload.custom_include_headers = oai_settings.custom_include_headers || '';
+  // 优先从缓存读取（init 时通过 /api/settings/get 获取），其次读全局变量
+  const oai = cachedOaiSettings || (typeof oai_settings !== 'undefined' ? oai_settings : null);
+
+  if (oai) {
+    payload.chat_completion_source = oai.chat_completion_source;
+    payload.model = oai.chat_completion_source === 'custom'
+      ? (oai.custom_model || oai.openai_model)
+      : oai.openai_model;
+    payload.custom_url = oai.custom_url || '';
+    payload.custom_include_body = oai.custom_include_body || '';
+    payload.custom_exclude_body = oai.custom_exclude_body || '';
+    payload.custom_include_headers = oai.custom_include_headers || '';
   }
 
-  console.log(`[Event Chronicle] 模型: ${payload.model}, chat_completion_source: ${payload.chat_completion_source}`);
+  // 回退：如果缓存和全局都没有，使用 EC 自身设置覆盖
+  const ecOverride = extension_settings?.['event-chronicle']?.llmOverride;
+  if (ecOverride) {
+    if (!payload.chat_completion_source && ecOverride.chat_completion_source) {
+      payload.chat_completion_source = ecOverride.chat_completion_source;
+    }
+    if (!payload.model && ecOverride.model) {
+      payload.model = ecOverride.model;
+    }
+    if (!payload.custom_url && ecOverride.custom_url) {
+      payload.custom_url = ecOverride.custom_url;
+    }
+    if (ecOverride.chat_completion_source === 'custom' && ecOverride.custom_model && !payload.model) {
+      payload.model = ecOverride.custom_model;
+    }
+  }
+
+  // 最终校验
+  if (!payload.chat_completion_source || !payload.model) {
+    const msg = '[Event Chronicle] [ERROR] 无法确定 API 配置：chat_completion_source=' + payload.chat_completion_source + ', model=' + payload.model + '。请在 ST 的 API 设置中配置，或在 Event Chronicle 设置面板中覆盖。';
+    console.error(msg);
+    throw new Error(msg);
+  }
 
   const response = await fetch('/api/backends/chat-completions/generate', {
     method: 'POST',
@@ -410,16 +457,32 @@ function injectSettingsUI() {
           <small style="color:#888;">两次自动提取之间的最小间隔</small>
         </div>
 
-        <h4>模型设置 <small style="color:#888;">（可选，留空则复用 ST 配置）</small></h4>
-        <div style="display:flex;gap:12px;">
+        <h4>模型设置 <small style="color:#888;">（留空则自动复用 ST 的 API 配置）</small></h4>
+        <div><label for="ec_chat_source">聊天补全来源 (chat_completion_source)</label>
+        <select id="ec_chat_source" name="llmOverride.chat_completion_source" class="text_pole" style="width:100%;">
+          <option value="" ${!settings.llmOverride?.chat_completion_source ? 'selected' : ''}>— 自动（复用 ST 设置）—</option>
+          <option value="openai" ${settings.llmOverride?.chat_completion_source === 'openai' ? 'selected' : ''}>OpenAI</option>
+          <option value="claude" ${settings.llmOverride?.chat_completion_source === 'claude' ? 'selected' : ''}>Claude</option>
+          <option value="custom" ${settings.llmOverride?.chat_completion_source === 'custom' ? 'selected' : ''}>Custom</option>
+          <option value="deepseek" ${settings.llmOverride?.chat_completion_source === 'deepseek' ? 'selected' : ''}>DeepSeek</option>
+          <option value="openrouter" ${settings.llmOverride?.chat_completion_source === 'openrouter' ? 'selected' : ''}>OpenRouter</option>
+        </select>
+        <small style="color:#888;">如 ST 全局配置可用则无需手动选择</small></div>
+        <div style="display:flex;gap:12px;margin-top:6px;">
           <div style="flex:1;"><label for="ec_llm_model">模型名称</label>
           <input id="ec_llm_model" name="llmOverride.model" type="text" placeholder="例如 gpt-4o-mini" value="${settings.llmOverride?.model || ''}" class="text_pole"></div>
+          <div style="flex:1;"><label for="ec_llm_custom_model">自定义模型 (custom 时使用)</label>
+          <input id="ec_llm_custom_model" name="llmOverride.custom_model" type="text" placeholder="例如 deepseek-ai/DeepSeek-V3" value="${settings.llmOverride?.custom_model || ''}" class="text_pole"></div>
+        </div>
+        <div style="margin-top:6px;"><label for="ec_custom_url">自定义 API URL (custom 时使用)</label>
+        <input id="ec_custom_url" name="llmOverride.custom_url" type="text" placeholder="例如 https://api.siliconflow.cn/v1" value="${settings.llmOverride?.custom_url || ''}" class="text_pole"></div>
+        <div style="display:flex;gap:12px;margin-top:6px;">
           <div style="flex:1;"><label for="ec_llm_temperature">生成温度</label>
           <input id="ec_llm_temperature" name="llmOverride.temperature" type="number" min="0" max="2" value="${settings.llmOverride?.temperature || 0}" step="0.1" class="text_pole"></div>
+          <div style="flex:1;"><label for="ec_max_tokens">最大输出 Token</label>
+          <input id="ec_max_tokens" name="overrideMaxTokens" type="number" min="256" max="16384" value="${settings.overrideMaxTokens}" class="text_pole"></div>
         </div>
-        <div><label for="ec_max_tokens">最大输出 Token</label>
-        <input id="ec_max_tokens" name="overrideMaxTokens" type="number" min="256" max="16384" value="${settings.overrideMaxTokens}" class="text_pole">
-        <small style="color:#888;">事件提取需要足够长度输出完整 JSON</small></div>
+        <small style="color:#888;">事件提取需要足够长度输出完整 JSON。如果模型名称留空，将自动使用 ST 配置的模型。</small>
 
         <h4>一键批量生成</h4>
         <p style="color:#ffaa00;font-size:0.85em;">⚠ 将从整个聊天历史生成事件，消耗大量 Token。</p>
@@ -593,20 +656,23 @@ export async function init() {
   console.log('[Event Chronicle] 🚀 扩展初始化开始');
   console.log('[Event Chronicle] ═══════════════════════════════════════');
 
-  // 1. 注入 LLM 通道（ST 后端 API → ec-bridge）
+  // 1. 缓存 ST API 配置（解决 oai_settings 全局变量不可用的问题）
+  await loadOaiSettings();
+
+  // 2. 注入 LLM 通道（ST 后端 API → ec-bridge）
   ecBridge.setGenerateRaw(llmCall);
   console.log('[Event Chronicle] ✅ LLM 通道已注入');
 
-  // 2. 注入设置 UI
+  // 3. 注入设置 UI
   injectSettingsUI();
   console.log('[Event Chronicle] ✅ 设置 UI 已注入');
 
-  // 3. 初始化设置 + 存储后端
+  // 4. 初始化设置 + 存储后端
   ensureSettings();
   ecBridge.setExtSettings(extension_settings);
   console.log('[Event Chronicle] ✅ 设置 + 存储已初始化');
 
-  // 4. 注册事件钩子（对标 Chronicle 模式）
+  // 5. 注册事件钩子（对标 Chronicle 模式）
   eventSource.on(event_types.CHARACTER_MESSAGE_RENDERED, onCharacterMessageRendered);
   eventSource.on(event_types.CHAT_CHANGED, onChatChanged);
 
@@ -621,7 +687,7 @@ export async function init() {
   console.log('[Event Chronicle]    - CHAT_CHANGED → 重置状态');
   console.log('[Event Chronicle]    - MESSAGE_DELETED/UPDATED → 重置追踪');
 
-  // 5. Wand 菜单
+  // 6. Wand 菜单
   setupWandMenu();
   console.log('[Event Chronicle] ✅ Wand 菜单已设置');
 

@@ -469,7 +469,12 @@ function bindSettingsEvents() {
   // 批量生成按钮
   const btn = document.getElementById('ec_batch_start');
   if (!btn) return;
+  let batchRunning = false;
   btn.addEventListener('click', () => {
+    if (batchRunning) {
+      console.warn('[Event Chronicle] ⚠ 批量生成已在运行中，跳过重复触发');
+      return;
+    }
     const ctx = getContext();
     const msgs = ctx && Array.isArray(ctx.chat) ? ctx.chat : [];
     console.log(`[Event Chronicle] 批量生成 — ${msgs.length} 条消息`);
@@ -478,6 +483,7 @@ function bindSettingsEvents() {
     const sliceSize = parseInt(document.getElementById('ec_batch_slice')?.value || '12', 10);
     if (!confirm(`⚠ 将处理 ${msgs.length} 条消息（每批 ${sliceSize} 条），预计消耗大量 Token。继续？`)) return;
 
+    batchRunning = true;
     document.getElementById('ec_batch_start').style.display = 'none';
     document.getElementById('ec_batch_progress').style.display = 'block';
 
@@ -493,6 +499,7 @@ function bindSettingsEvents() {
         if (text) text.textContent = `Chunk ${p.chunk || 1} · ${p.current}/${p.total} · ${p.eventsFound} 个事件`;
       },
       onComplete(r) {
+        batchRunning = false;
         const text = document.getElementById('ec_batch_text');
         if (text) text.textContent = `完成！共 ${r.finalCount || r.totalEvents} 个事件。`;
         updateChroniclePrompt();
@@ -505,6 +512,7 @@ function bindSettingsEvents() {
         }, 5000);
       },
       onError(e) {
+        batchRunning = false;
         alert('批量生成错误: ' + (e.message || e));
         const startBtn = document.getElementById('ec_batch_start');
         if (startBtn) startBtn.style.display = '';

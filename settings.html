@@ -77,7 +77,9 @@
     b.style.color = api.isReady() ? '#4caf50' : '#888';
   }
 
+  var _batchBusy = false;
   document.getElementById('ec_batch_start')?.addEventListener('click', function() {
+    if (_batchBusy) { console.warn('[EC:Settings] 批量生成已在运行中'); return; }
     var api = getAPI();
     if (!api || !api.isReady()) { alert('扩展未就绪，请检查 ST 的 API 配置。'); return; }
     // 从 ST 上下文获取聊天消息
@@ -86,19 +88,24 @@
     if (!msgs.length) { alert('未找到聊天消息。'); return; }
     var sliceSize = parseInt(document.getElementById('ec_batch_slice')?.value || '5', 10);
     if (!confirm('⚠ 将处理 ' + msgs.length + ' 条消息（每批 ' + sliceSize + ' 条），预计消耗大量 Token。继续？')) return;
+    _batchBusy = true;
     document.getElementById('ec_batch_start').style.display = 'none';
     document.getElementById('ec_batch_progress').style.display = 'block';
+    var ctx = {};
+    try { if (typeof getContext === 'function') { var c = getContext(); if (c) { ctx = { name1: c.name1, name2: c.name2 }; } } } catch(e) {}
     api.startBatchGeneration({
       messages: msgs, sliceSize: sliceSize,
+      context: ctx,
       onProgress: function(p) {
         document.getElementById('ec_batch_fill').style.width = Math.round(p.current/p.total*100) + '%';
         document.getElementById('ec_batch_text').textContent = p.current + '/' + p.total + ' · ' + p.eventsFound + ' 个事件';
       },
       onComplete: function(r) {
-        document.getElementById('ec_batch_text').textContent = '完成！共 ' + r.totalEvents + ' 个事件。';
+        _batchBusy = false;
+        document.getElementById('ec_batch_text').textContent = '完成！共 ' + (r.finalCount || r.totalEvents) + ' 个事件。';
         setTimeout(function() { document.getElementById('ec_batch_start').style.display = ''; document.getElementById('ec_batch_progress').style.display = 'none'; }, 4000);
       },
-      onError: function(e) { alert('错误: ' + (e.message || e)); document.getElementById('ec_batch_start').style.display = ''; }
+      onError: function(e) { _batchBusy = false; alert('错误: ' + (e.message || e)); document.getElementById('ec_batch_start').style.display = ''; }
     });
   });
 

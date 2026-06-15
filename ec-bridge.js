@@ -164,7 +164,15 @@ export function setGenerateRaw(fn) {
 }
 
 async function callLLM(prompt) {
-  if (!_generateRaw) throw new Error('generateRaw 未注入');
+  if (!_generateRaw) {
+    console.error('[EC:Bridge] ❌ FATAL: _generateRaw 为 null/undefined — LLM 通道未被注入！');
+    throw new Error('generateRaw 未注入');
+  }
+  if (typeof _generateRaw !== 'function') {
+    console.error(`[EC:Bridge] ❌ FATAL: _generateRaw 类型错误 — 期望 function，实际 ${typeof _generateRaw}`);
+    throw new Error('generateRaw 不是函数');
+  }
+  console.log(`[EC:Bridge] 🔧 诊断: _generateRaw 已注入 (${typeof _generateRaw}), prompt=${prompt.length} 字符`);
   const startTime = performance.now();
   console.log(`[EC:Bridge] 📤 LLM 调用 — prompt: ${prompt.length} 字符, ~${Math.ceil(prompt.length / 3.5)} tokens`);
   try {
@@ -580,8 +588,13 @@ export async function startBatchGeneration(opts) {
   console.log(`[EC:Bridge] 🔄 批量生成 — chatId="${chatId}", ${messages.length} 条消息, 每批 ${sliceSize} 条`);
   console.log('[EC:Bridge] ═══════════════════════════════════════');
 
-  const prog = loadBatchProgress(chatId);
-  let idx = prog.lastProcessedIndex || 0;
+  // 强制重置进度 — 每次新批量生成都从零开始
+  const prevProgress = loadBatchProgress(chatId);
+  if (prevProgress.lastProcessedIndex > 0) {
+    console.log(`[EC:Bridge] 🔄 发现上次进度 lastProcessedIndex=${prevProgress.lastProcessedIndex}，重置为 0`);
+  }
+  resetBatchProgress(chatId);
+  let idx = 0;
   let chunkCount = 0;
 
   const runBatch = async () => {

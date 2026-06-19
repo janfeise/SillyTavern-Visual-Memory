@@ -1,9 +1,10 @@
 {
-  "display_name": "Event Chronicle · 事件编年史",
+  "display_name": "Visual Memory · 可视记忆",
   "version": "1.1.0",
   "author": "Tilex",
   "js": "index.js",
   "css": "style.css",
   "hooks": { "activate": "init" },
-  "loading_order": 100
+  "loading_order": 100,
+  "homePage": "https://github.com/janfeise/SillyTavern-Visual-Memory"
 }

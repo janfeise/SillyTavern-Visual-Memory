@@ -4,9 +4,29 @@
   padding: 12px 16px;
 }
 
-#ec_settings .ec-warning {
-  color: #ffaa00;
+/* 分组标题分割线 */
+#ec_settings h4 {
+  margin-top: 16px;
+  margin-bottom: 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid #333;
+}
+#ec_settings h4:first-of-type {
+  margin-top: 8px;
+}
+
+/* 配置项单行布局 */
+.ec-field {
+  margin-bottom: 8px;
+}
+.ec-field label {
+  display: block;
+  margin-bottom: 4px;
   font-weight: 500;
+}
+.ec-field .text_pole,
+.ec-field select {
+  width: 100%;
 }
 
 .ec-hint {
@@ -16,25 +36,13 @@
   margin-top: 2px;
 }
 
-.ec-form-row {
-  display: flex;
-  gap: 12px;
+/* 提示文字 */
+.ec-warning {
+  color: #ffaa00;
+  font-weight: 500;
 }
 
-.ec-half { flex: 1; }
-
-.ec-actions {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin: 8px 0;
-}
-
-.ec-status {
-  color: #999;
-  font-size: 0.9em;
-}
-
+/* 进度条 */
 .ec-progress-bar {
   width: 100%;
   height: 6px;
@@ -58,6 +66,7 @@
   margin-top: 4px;
 }
 
+/* 状态指示器 */
 .ec-indicator {
   width: 10px;
   height: 10px;
@@ -69,6 +78,7 @@
 .ec-indicator.error { background: #f44336; }
 .ec-indicator.checking { background: #ffaa00; }
 
+/* 按钮 */
 .ec-btn-primary {
   margin-top: 6px;
 }

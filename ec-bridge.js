@@ -9,7 +9,9 @@
 //
 // 本文件维护:
 //   LLM 桥接 (callLLM via ST backend API)
-//   存储适配 (loadEvents/saveEvents via extension_settings)
+//   存储适配:
+//     - extension_settings → 全局配置 (插件设置、LLM 配置)
+//     - metadata (chat_metadata) → per-chat 业务数据 (事件、合并状态、批量进度)
 //   流程编排 (extractEvents/mergeEvents/processMessages)
 //   事件去重 (deduplicateEvents/isDuplicateEvent)
 //   记忆导出 (exportMemory)
@@ -192,57 +194,75 @@ async function callLLM(prompt) {
 }
 
 // ---------------------------------------------------------------------------
-// 存储适配（extension_settings）
+// 存储适配
+//   extension_settings → 全局配置 (插件设置)
+//   metadata (chat_metadata) → per-chat 业务数据 (事件、合并状态、批量进度)
 // ---------------------------------------------------------------------------
 
 let _extSettings = null;
+let _metadata = null;
+let _saveMetadataFn = null;
 
 export function setExtSettings(s) {
   _extSettings = s;
-  console.log('[EC:Bridge] 存储后端注入: extension_settings');
+  console.log('[EC:Bridge] 存储后端注入: extension_settings (全局配置)');
 }
 
-function ensureNS() {
+export function setMetadata(md, saveFn) {
+  _metadata = md;
+  _saveMetadataFn = saveFn;
+  console.log('[EC:Bridge] 存储后端注入: metadata (per-chat 业务数据)');
+}
+
+/** 确保 extension_settings 命名空间存在 (全局配置) */
+function ensureSettingsNS() {
   if (!_extSettings) throw new Error('extension_settings 未注入');
   if (!_extSettings['event-chronicle']) _extSettings['event-chronicle'] = {};
   return _extSettings['event-chronicle'];
 }
 
-function loadEvents(eventId) {
-  const ns = ensureNS();
-  if (!ns._events) ns._events = {};
-  const events = ns._events[eventId || 'default'] || [];
-  return events;
+/** 确保 metadata 命名空间存在 (per-chat 业务数据) */
+function ensureMetadataNS() {
+  if (!_metadata) throw new Error('metadata 未注入 — 请先调用 setMetadata()');
+  if (!_metadata['event-chronicle']) _metadata['event-chronicle'] = {};
+  return _metadata['event-chronicle'];
 }
 
-function saveEvents(eventId, events) {
-  const ns = ensureNS();
-  if (!ns._events) ns._events = {};
-  ns._events[eventId || 'default'] = events;
+/** 持久化 metadata 到聊天文件 */
+export function saveAndPersist() {
+  if (_saveMetadataFn) _saveMetadataFn();
 }
 
-function loadMergeState(eventId) {
-  const ns = ensureNS();
-  if (!ns._merge) ns._merge = {};
-  return ns._merge[eventId || 'default'] || { newEventCount: 0, lastMergeAt: null };
+// --- per-chat 业务数据读写 (metadata) ---
+
+function loadEvents() {
+  const ns = ensureMetadataNS();
+  return ns._events || [];
 }
 
-function saveMergeState(eventId, state) {
-  const ns = ensureNS();
-  if (!ns._merge) ns._merge = {};
-  ns._merge[eventId || 'default'] = state;
+function saveEvents(events) {
+  const ns = ensureMetadataNS();
+  ns._events = events;
 }
 
-function loadBatchProgress(eventId) {
-  const ns = ensureNS();
-  if (!ns._batch) ns._batch = {};
-  return ns._batch[eventId || 'default'] || { lastProcessedIndex: 0, totalMessages: 0, completed: false };
+function loadMergeState() {
+  const ns = ensureMetadataNS();
+  return ns._merge || { newEventCount: 0, lastMergeAt: null };
 }
 
-function saveBatchProgress(eventId, progress) {
-  const ns = ensureNS();
-  if (!ns._batch) ns._batch = {};
-  ns._batch[eventId || 'default'] = progress;
+function saveMergeState(state) {
+  const ns = ensureMetadataNS();
+  ns._merge = state;
+}
+
+function loadBatchProgress() {
+  const ns = ensureMetadataNS();
+  return ns._batch || { lastProcessedIndex: 0, totalMessages: 0, completed: false };
+}
+
+function saveBatchProgress(progress) {
+  const ns = ensureMetadataNS();
+  ns._batch = progress;
 }
 
 // =============================================================================
@@ -330,8 +350,11 @@ export async function extractEvents(messages, existingEvents, context) {
 
   console.log(`[EC:Bridge] 📋 LLM 返回 ${parsed.length} 个候选事件`);
 
-  // 7. 注入 ID + timestamp
-  const ts = nowTimestamp();
+  // 7. 注入 ID + timestamp（使用最后一条消息的发送时间，而非提取时间）
+  const lastMsg = messages[messages.length - 1];
+  const ts = lastMsg?.send_date
+    ? Math.floor(new Date(lastMsg.send_date).getTime() / 1000)
+    : nowTimestamp();
   const eventsWithIds = parsed.map(e => ({
     ...e,
     id: e.id || generateEventId(),
@@ -513,22 +536,21 @@ function renderStars(n) {
  *
  * @param {object[]} messages ST 消息数组
  * @param {object} opts {
- *   eventId, context, autoMerge, mergeThreshold, mergeWindow
+ *   context, autoMerge, mergeThreshold, mergeWindow
  * }
  * @returns {Promise<{events: object[], merged: boolean, mergedEvents?: object[]}>}
  */
 export async function processMessages(messages, opts) {
   console.log('[EC:Bridge] ═══════════════════════════════════════');
-  console.log(`[EC:Bridge] 🚀 processMessages — ${messages.length} 条消息, eventId="${opts?.eventId || 'default'}"`);
+  console.log(`[EC:Bridge] 🚀 processMessages — ${messages.length} 条消息`);
   console.log('[EC:Bridge] ═══════════════════════════════════════');
 
   opts = opts || {};
-  const eventId = opts.eventId || 'default';
   const context = opts.context || {};
   const threshold = opts.mergeThreshold || 5;
 
-  // 1. 加载已有事件
-  const existing = loadEvents(eventId);
+  // 1. 加载已有事件 (从 metadata)
+  const existing = loadEvents();
   console.log(`[EC:Bridge] 📖 已加载 ${existing.length} 个已有事件`);
 
   // 2. Phase 1: 提取
@@ -543,7 +565,7 @@ export async function processMessages(messages, opts) {
   }
 
   // 3. 更新合并计数器
-  const state = loadMergeState(eventId);
+  const state = loadMergeState();
   state.newEventCount += newEvents.length;
   console.log(`[EC:Bridge] 合并计数器: ${state.newEventCount}/${threshold}`);
 
@@ -555,7 +577,7 @@ export async function processMessages(messages, opts) {
     console.log('[EC:Bridge] 🔄 达到合并阈值，触发 Phase 2');
     const mergeStart = performance.now();
     mergedEvents = await mergeEvents(existing, newEvents, opts.mergeWindow || 20);
-    saveEvents(eventId, mergedEvents);
+    saveEvents(mergedEvents);
     state.newEventCount = 0;
     state.lastMergeAt = new Date().toISOString();
     merged = true;
@@ -563,38 +585,78 @@ export async function processMessages(messages, opts) {
     console.log(`[EC:Bridge] ✅ 合并完成 — ${mergedEvents.length} 个事件已入库`);
   } else {
     const combined = [...existing, ...newEvents];
-    saveEvents(eventId, combined);
+    saveEvents(combined);
     console.log(`[EC:Bridge] 📝 直接追加 — ${combined.length} 个事件 (${existing.length} 已有 + ${newEvents.length} 新增)`);
   }
 
-  saveMergeState(eventId, state);
+  saveMergeState(state);
   console.log(`[EC:Bridge] ⏱ 总耗时: ${(performance.now() - startTime).toFixed(0)}ms`);
   console.log('[EC:Bridge] ═══════════════════════════════════════');
   return { events: newEvents, merged, mergedEvents };
 }
 
 // =============================================================================
-// 批量生成（滑动窗口回填）
+// 批量生成（增量模式）
 // =============================================================================
 
+/**
+ * 查询增量处理状态
+ * @param {number} totalMessages 当前聊天消息总数
+ * @returns {{ processed: number, total: number, pending: number, hasPending: boolean, completed: boolean }}
+ */
+export function getIncrementalStatus(totalMessages) {
+  const progress = loadBatchProgress();
+  const processed = progress.lastProcessedIndex || 0;
+  const pending = Math.max(0, totalMessages - processed);
+  return {
+    processed,
+    total: totalMessages,
+    pending,
+    hasPending: pending > 0,
+    completed: progress.completed || false,
+  };
+}
+
+/**
+ * 增量批量生成 — 只处理 lastProcessedIndex 之后的新消息
+ *
+ * @param {object} opts {
+ *   messages, context, sliceSize, maxChunks,
+ *   onStart, onProgress, onComplete, onError
+ * }
+ */
 export async function startBatchGeneration(opts) {
-  const chatId = opts.chatId || 'default';
   const messages = opts.messages || [];
   const context = opts.context || {};
   const sliceSize = opts.sliceSize || 12;
   const maxChunks = opts.maxChunks || 80;
 
+  // 读取上次进度（不重置，增量继续）
+  const prevProgress = loadBatchProgress();
+  let idx = prevProgress.lastProcessedIndex || 0;
+
+  // 如果上次已处理完全部消息，重置为 0 允许重新全量生成
+  if (idx >= messages.length) {
+    console.log('[EC:Bridge] 🔄 上次已完成全部处理，从头开始');
+    idx = 0;
+  }
+
+  const pendingCount = messages.length - idx;
+
   console.log('[EC:Bridge] ═══════════════════════════════════════');
-  console.log(`[EC:Bridge] 🔄 批量生成 — chatId="${chatId}", ${messages.length} 条消息, 每批 ${sliceSize} 条`);
+  console.log(`[EC:Bridge] 🔄 增量生成 — 已处理: ${idx}, 待处理: ${pendingCount}, 总计: ${messages.length}`);
   console.log('[EC:Bridge] ═══════════════════════════════════════');
 
-  // 强制重置进度 — 每次新批量生成都从零开始
-  const prevProgress = loadBatchProgress(chatId);
-  if (prevProgress.lastProcessedIndex > 0) {
-    console.log(`[EC:Bridge] 🔄 发现上次进度 lastProcessedIndex=${prevProgress.lastProcessedIndex}，重置为 0`);
+  // 通知起始状态
+  if (opts.onStart) opts.onStart({ processed: idx, total: messages.length, pending: pendingCount });
+
+  // 无新消息
+  if (pendingCount <= 0) {
+    console.log('[EC:Bridge] 📭 无新消息，跳过处理');
+    if (opts.onComplete) opts.onComplete({ newEvents: 0, finalCount: loadEvents().length, noNew: true });
+    return;
   }
-  resetBatchProgress(chatId);
-  let idx = 0;
+
   let chunkCount = 0;
 
   const runBatch = async () => {
@@ -607,30 +669,30 @@ export async function startBatchGeneration(opts) {
         console.log(`[EC:Bridge] 📦 Chunk ${chunkCount} — 消息 ${idx + 1}-${end}/${messages.length}`);
 
         const result = await processMessages(chunk, {
-          eventId: chatId, context, autoMerge: false, mergeThreshold: 999,
+          context, autoMerge: false, mergeThreshold: 999,
         });
         totalFound += result.events.length;
         idx = end;
-        saveBatchProgress(chatId, { lastProcessedIndex: idx, totalMessages: messages.length, completed: false });
-        if (opts.onProgress) opts.onProgress({ current: Math.min(idx, messages.length), total: messages.length, eventsFound: totalFound, chunk: chunkCount });
+        saveBatchProgress({ lastProcessedIndex: idx, totalMessages: messages.length, completed: false });
+        if (opts.onProgress) opts.onProgress({ current: idx, total: messages.length, eventsFound: totalFound, chunk: chunkCount });
       }
 
       // 最终全局合并
-      console.log('[EC:Bridge] 🔄 批量处理完成，触发最终全局合并...');
-      const allEvents = loadEvents(chatId);
+      console.log('[EC:Bridge] 🔄 增量处理完成，触发最终全局合并...');
+      const allEvents = loadEvents();
       if (allEvents.length > 1) {
         const merged = await mergeEvents([], allEvents, 50);
-        saveEvents(chatId, merged);
+        saveEvents(merged);
         console.log(`[EC:Bridge] ✅ 最终合并: ${allEvents.length} → ${merged.length} 个事件`);
       }
 
-      saveBatchProgress(chatId, { lastProcessedIndex: messages.length, totalMessages: messages.length, completed: true });
-      const finalEvents = loadEvents(chatId);
-      console.log(`[EC:Bridge] 🎉 批量生成完成 — ${finalEvents.length} 个事件`);
-      if (opts.onComplete) opts.onComplete({ totalEvents: totalFound, finalCount: finalEvents.length });
+      saveBatchProgress({ lastProcessedIndex: messages.length, totalMessages: messages.length, completed: true });
+      const finalEvents = loadEvents();
+      console.log(`[EC:Bridge] 🎉 增量生成完成 — 新增 ${totalFound} 个事件，共 ${finalEvents.length} 个`);
+      if (opts.onComplete) opts.onComplete({ newEvents: totalFound, finalCount: finalEvents.length, noNew: false });
     } catch (err) {
-      console.error('[EC:Bridge] ❌ 批量生成失败:', err.message || err);
-      saveBatchProgress(chatId, { lastProcessedIndex: idx, totalMessages: messages.length, completed: false, error: err.message });
+      console.error('[EC:Bridge] ❌ 增量生成失败:', err.message || err);
+      saveBatchProgress({ lastProcessedIndex: idx, totalMessages: messages.length, completed: false, error: err.message });
       if (opts.onError) opts.onError(err);
     }
   };
@@ -642,56 +704,53 @@ export async function startBatchGeneration(opts) {
 // CRUD 操作
 // =============================================================================
 
-export function getEvents(eventId) {
-  const events = loadEvents(eventId);
-  console.log(`[EC:Bridge] 📖 getEvents("${eventId}") — ${events.length} 个事件`);
+export function getEvents() {
+  const events = loadEvents();
+  console.log(`[EC:Bridge] 📖 getEvents — ${events.length} 个事件`);
   return events;
 }
 
+/**
+ * 获取当前聊天的所有事件。
+ * 注意：metadata 是 per-chat 的，无法跨聊天聚合。
+ * 如需跨聊天数据，请通过 ST 的聊天文件系统访问。
+ */
 export function getAllEvents() {
-  const all = [];
-  try {
-    const ns = ensureNS();
-    const eventsMap = ns._events || {};
-    for (const [id, evts] of Object.entries(eventsMap)) {
-      for (const e of (evts || [])) { e._chatId = id; all.push(e); }
-    }
-  } catch (e) { console.error('[EC:Bridge] getAllEvents 失败:', e.message); }
-  return all;
+  return getEvents();
 }
 
-export function updateEvent(chatId, ev) {
-  console.log(`[EC:Bridge] ✏️ updateEvent — chatId="${chatId}", eventId="${ev.id}"`);
-  const events = loadEvents(chatId);
+export function updateEvent(ev) {
+  console.log(`[EC:Bridge] ✏️ updateEvent — eventId="${ev.id}"`);
+  const events = loadEvents();
   const idx = events.findIndex(e => e.id === ev.id);
   if (idx === -1) { console.warn(`[EC:Bridge] ⚠ 未找到事件: ${ev.id}`); return null; }
-  events[idx] = { ...events[idx], ...ev, _chatId: undefined };
-  saveEvents(chatId, events);
+  events[idx] = { ...events[idx], ...ev };
+  saveEvents(events);
   console.log(`[EC:Bridge] ✅ 事件已更新: "${events[idx].title}"`);
   return events[idx];
 }
 
-export function deleteEvent(chatId, eventId) {
-  console.log(`[EC:Bridge] 🗑 deleteEvent — chatId="${chatId}", eventId="${eventId}"`);
-  const events = loadEvents(chatId);
+export function deleteEvent(eventId) {
+  console.log(`[EC:Bridge] 🗑 deleteEvent — eventId="${eventId}"`);
+  const events = loadEvents();
   const f = events.filter(e => e.id !== eventId);
   if (f.length === events.length) { console.warn(`[EC:Bridge] ⚠ 未找到要删除的事件: ${eventId}`); return false; }
-  saveEvents(chatId, f);
+  saveEvents(f);
   console.log(`[EC:Bridge] ✅ 事件已删除 — 剩余 ${f.length} 个`);
   return true;
 }
 
-export function getMemory(eventId, opts) {
-  return exportMemory(loadEvents(eventId || 'default'), opts);
+export function getMemory(opts) {
+  return exportMemory(loadEvents(), opts);
 }
 
-export function getBatchProgress(chatId) {
-  return loadBatchProgress(chatId);
+export function getBatchProgress() {
+  return loadBatchProgress();
 }
 
-export function resetBatchProgress(chatId) {
-  console.log(`[EC:Bridge] 🔄 重置批量进度 — chatId="${chatId}"`);
-  saveBatchProgress(chatId, { lastProcessedIndex: 0, totalMessages: 0, completed: false });
+export function resetBatchProgress() {
+  console.log('[EC:Bridge] 🔄 重置批量进度');
+  saveBatchProgress({ lastProcessedIndex: 0, totalMessages: 0, completed: false });
 }
 
 // =============================================================================

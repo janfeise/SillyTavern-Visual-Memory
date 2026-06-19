@@ -7,7 +7,7 @@
 // =============================================================================
 
 import { eventSource, event_types, saveSettingsDebounced, getRequestHeaders, setExtensionPrompt, extension_prompt_roles } from '../../../../script.js';
-import { extension_settings, getContext } from '../../../extensions.js';
+import { extension_settings, getContext, saveMetadataDebounced } from '../../../extensions.js';
 import * as ecBridge from './ec-bridge.js';
 
 // ---------------------------------------------------------------------------
@@ -195,12 +195,83 @@ function getChatId() {
 }
 
 // ---------------------------------------------------------------------------
+// Metadata 注入 (per-chat 业务数据)
+// ---------------------------------------------------------------------------
+
+function injectMetadata() {
+  try {
+    const ctx = getContext();
+    if (ctx && ctx.chatMetadata) {
+      ecBridge.setMetadata(ctx.chatMetadata, () => saveMetadataDebounced());
+    } else {
+      console.warn('[Event Chronicle] ⚠ chatMetadata 不可用，跳过 metadata 注入');
+    }
+  } catch (e) {
+    console.warn('[Event Chronicle] ⚠ metadata 注入失败:', e.message);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 数据迁移：extension_settings → metadata (一次性)
+// ---------------------------------------------------------------------------
+
+function migrateToMetadata() {
+  const settings = extension_settings['event-chronicle'];
+  if (!settings) return;
+
+  const hasLegacyData = settings._events || settings._merge || settings._batch;
+  if (!hasLegacyData) return;
+
+  console.log('[Event Chronicle] 🔄 检测到旧数据，执行迁移...');
+
+  try {
+    const ctx = getContext();
+    if (!ctx || !ctx.chatMetadata) {
+      console.warn('[Event Chronicle] ⚠ chatMetadata 不可用，跳过迁移');
+      return;
+    }
+
+    const chatId = getChatId();
+    const md = ctx.chatMetadata;
+    if (!md['event-chronicle']) md['event-chronicle'] = {};
+
+    // 迁移当前聊天的事件
+    if (settings._events && settings._events[chatId]) {
+      md['event-chronicle']._events = settings._events[chatId];
+      console.log(`[Event Chronicle] 📦 迁移事件: ${md['event-chronicle']._events.length} 个`);
+    }
+    if (settings._merge && settings._merge[chatId]) {
+      md['event-chronicle']._merge = settings._merge[chatId];
+    }
+    if (settings._batch && settings._batch[chatId]) {
+      md['event-chronicle']._batch = settings._batch[chatId];
+    }
+
+    // 清理 extension_settings 中已迁移的当前聊天数据
+    if (settings._events) delete settings._events[chatId];
+    if (settings._merge) delete settings._merge[chatId];
+    if (settings._batch) delete settings._batch[chatId];
+
+    // 如果所有聊天数据都已迁移，清理整个 _events/_merge/_batch
+    if (settings._events && Object.keys(settings._events).length === 0) delete settings._events;
+    if (settings._merge && Object.keys(settings._merge).length === 0) delete settings._merge;
+    if (settings._batch && Object.keys(settings._batch).length === 0) delete settings._batch;
+
+    saveMetadataDebounced();
+    saveSettingsDebounced();
+    console.log('[Event Chronicle] ✅ 迁移完成');
+  } catch (e) {
+    console.error('[Event Chronicle] ❌ 迁移失败:', e.message);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Prompt 注入（对标 Chronicle updateChroniclePrompt）
 // ---------------------------------------------------------------------------
 
 function updateChroniclePrompt() {
   const settings = getSettings();
-  const promptText = ecBridge.getMemory(getChatId(), {
+  const promptText = ecBridge.getMemory({
     highlightThreshold: settings.highlightThreshold || 7,
     title: 'Event Chronicle Memory',
   });
@@ -290,7 +361,6 @@ async function onCharacterMessageRendered() {
     inApiCall = true;
 
     const result = await ecBridge.processMessages(messagesToCheck, {
-      eventId: getChatId(),
       context: { name1: context.name1, name2: context.name2 },
       autoMerge: true,
       mergeThreshold: getSettings().mergeTriggerCount || 5,
@@ -315,7 +385,7 @@ async function onCharacterMessageRendered() {
       console.log('[Event Chronicle] 🔄 自动合并已完成');
     }
 
-    saveSettingsDebounced();
+    ecBridge.saveAndPersist();
     updateChroniclePrompt();
 
   } catch (err) {
@@ -338,6 +408,8 @@ function onChatChanged() {
   // 重置状态
   lastProcessedMessageId = null;
   lastExtractionTime = 0;
+  // 重新注入 metadata（新聊天有新的 metadata）
+  injectMetadata();
   // 更新 Prompt 注入（为新聊天加载其事件）
   updateChroniclePrompt();
   console.log('[Event Chronicle] ✅ 聊天切换完成');
@@ -370,7 +442,6 @@ async function manualExtract() {
     console.log(`[Event Chronicle] 🔍 手动提取 — ${messagesToCheck.length} 条消息`);
 
     const result = await ecBridge.processMessages(messagesToCheck, {
-      eventId: getChatId(),
       context: { name1: context.name1, name2: context.name2 },
       autoMerge: true,
       mergeThreshold: settings.mergeTriggerCount || 5,
@@ -384,7 +455,7 @@ async function manualExtract() {
       if (typeof toastr !== 'undefined') toastr.info('未发现新事件', 'Event Chronicle');
     }
 
-    saveSettingsDebounced();
+    ecBridge.saveAndPersist();
     updateChroniclePrompt();
   } catch (err) {
     console.error('[Event Chronicle] ❌ 手动提取失败:', err.message || err);
@@ -415,67 +486,66 @@ function injectSettingsUI() {
         <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
       </div>
       <div class="inline-drawer-content">
-        <p style="color:#999;font-size:0.9em;">从角色扮演对话中自动提取结构化事件，构建时间线，注入长期记忆。</p>
+        <p class="ec-hint" style="margin-bottom:12px;">自动从对话中提取事件，构建时间线并注入 AI 记忆。</p>
 
-        <h4>自动提取</h4>
-        <div style="display:flex;gap:12px;">
-          <div style="flex:1;">
-            <label for="ec_extract_trigger">每 N 条消息触发提取</label>
-            <input id="ec_extract_trigger" name="extractTriggerCount" type="number" min="3" max="100" value="${settings.extractTriggerCount}" class="text_pole">
-            <small style="color:#888;">未处理消息数达到后自动提取事件</small>
-          </div>
-          <div style="flex:1;">
-            <label for="ec_merge_trigger">每 N 条新事件触发整理</label>
-            <input id="ec_merge_trigger" name="mergeTriggerCount" type="number" min="2" max="50" value="${settings.mergeTriggerCount}" class="text_pole">
-            <small style="color:#888;">新事件累计达到后自动合并去重</small>
-          </div>
+        <h4>⚙️ 自动提取</h4>
+        <div class="ec-field">
+          <label for="ec_extract_trigger">触发间隔（消息数）</label>
+          <input id="ec_extract_trigger" name="extractTriggerCount" type="number" min="3" max="100" value="${settings.extractTriggerCount}" class="text_pole">
+          <small class="ec-hint">累积多少条新消息后自动触发事件提取</small>
         </div>
-        <div style="margin-top:8px;">
-          <label for="ec_cooldown">冷却时间: <span id="ec_cooldown_val">${settings.extractionCooldown}</span>s</label>
-          <input id="ec_cooldown" name="extractionCooldown" type="range" min="10" max="120" step="5" value="${settings.extractionCooldown}" oninput="document.getElementById('ec_cooldown_val').textContent=this.value">
-          <small style="color:#888;">两次自动提取之间的最小间隔</small>
+        <div class="ec-field">
+          <label for="ec_merge_trigger">合并阈值（事件数）</label>
+          <input id="ec_merge_trigger" name="mergeTriggerCount" type="number" min="2" max="50" value="${settings.mergeTriggerCount}" class="text_pole">
+          <small class="ec-hint">累积多少条新事件后自动触发合并去重</small>
         </div>
 
-        <h4>模型设置 <small style="color:#888;">（留空则自动复用 ST 的 API 配置）</small></h4>
-        <div><label for="ec_chat_source">聊天补全来源 (chat_completion_source)</label>
-        <select id="ec_chat_source" name="llmOverride.chat_completion_source" class="text_pole" style="width:100%;">
-          <option value="" ${!settings.llmOverride?.chat_completion_source ? 'selected' : ''}>— 自动（复用 ST 设置）—</option>
-          <option value="openai" ${settings.llmOverride?.chat_completion_source === 'openai' ? 'selected' : ''}>OpenAI</option>
-          <option value="claude" ${settings.llmOverride?.chat_completion_source === 'claude' ? 'selected' : ''}>Claude</option>
-          <option value="custom" ${settings.llmOverride?.chat_completion_source === 'custom' ? 'selected' : ''}>Custom</option>
-          <option value="deepseek" ${settings.llmOverride?.chat_completion_source === 'deepseek' ? 'selected' : ''}>DeepSeek</option>
-          <option value="openrouter" ${settings.llmOverride?.chat_completion_source === 'openrouter' ? 'selected' : ''}>OpenRouter</option>
-        </select>
-        <small style="color:#888;">如 ST 全局配置可用则无需手动选择</small></div>
-        <div style="display:flex;gap:12px;margin-top:6px;">
-          <div style="flex:1;"><label for="ec_llm_model">模型名称</label>
-          <input id="ec_llm_model" name="llmOverride.model" type="text" placeholder="例如 gpt-4o-mini" value="${settings.llmOverride?.model || ''}" class="text_pole"></div>
-          <div style="flex:1;"><label for="ec_llm_custom_model">自定义模型 (custom 时使用)</label>
-          <input id="ec_llm_custom_model" name="llmOverride.custom_model" type="text" placeholder="例如 deepseek-ai/DeepSeek-V3" value="${settings.llmOverride?.custom_model || ''}" class="text_pole"></div>
+        <h4>🤖 模型设置 <small class="ec-hint" style="display:inline;border:none;font-weight:normal;">留空则自动复用 ST 的 API 配置</small></h4>
+        <div class="ec-field">
+          <label for="ec_chat_source">API 来源</label>
+          <select id="ec_chat_source" name="llmOverride.chat_completion_source" class="text_pole">
+            <option value="" ${!settings.llmOverride?.chat_completion_source ? 'selected' : ''}>— 自动（复用 ST 设置）—</option>
+            <option value="openai" ${settings.llmOverride?.chat_completion_source === 'openai' ? 'selected' : ''}>OpenAI</option>
+            <option value="claude" ${settings.llmOverride?.chat_completion_source === 'claude' ? 'selected' : ''}>Claude</option>
+            <option value="custom" ${settings.llmOverride?.chat_completion_source === 'custom' ? 'selected' : ''}>Custom</option>
+            <option value="deepseek" ${settings.llmOverride?.chat_completion_source === 'deepseek' ? 'selected' : ''}>DeepSeek</option>
+            <option value="openrouter" ${settings.llmOverride?.chat_completion_source === 'openrouter' ? 'selected' : ''}>OpenRouter</option>
+          </select>
         </div>
-        <div style="margin-top:6px;"><label for="ec_custom_url">自定义 API URL (custom 时使用)</label>
-        <input id="ec_custom_url" name="llmOverride.custom_url" type="text" placeholder="例如 https://api.siliconflow.cn/v1" value="${settings.llmOverride?.custom_url || ''}" class="text_pole"></div>
-        <div style="display:flex;gap:12px;margin-top:6px;">
-          <div style="flex:1;"><label for="ec_llm_temperature">生成温度</label>
-          <input id="ec_llm_temperature" name="llmOverride.temperature" type="number" min="0" max="2" value="${settings.llmOverride?.temperature || 0}" step="0.1" class="text_pole"></div>
-          <div style="flex:1;"><label for="ec_max_tokens">最大输出 Token</label>
-          <input id="ec_max_tokens" name="overrideMaxTokens" type="number" min="256" max="16384" value="${settings.overrideMaxTokens}" class="text_pole"></div>
+        <div class="ec-field">
+          <label for="ec_llm_model">模型</label>
+          <input id="ec_llm_model" name="llmOverride.model" type="text" placeholder="例如 gpt-4o-mini" value="${settings.llmOverride?.model || ''}" class="text_pole">
         </div>
-        <small style="color:#888;">事件提取需要足够长度输出完整 JSON。如果模型名称留空，将自动使用 ST 配置的模型。</small>
+        <div class="ec-field">
+          <label for="ec_llm_custom_model">自定义模型</label>
+          <input id="ec_llm_custom_model" name="llmOverride.custom_model" type="text" placeholder="例如 deepseek-ai/DeepSeek-V3" value="${settings.llmOverride?.custom_model || ''}" class="text_pole">
+        </div>
+        <div class="ec-field">
+          <label for="ec_custom_url">自定义 API URL</label>
+          <input id="ec_custom_url" name="llmOverride.custom_url" type="text" placeholder="例如 https://api.siliconflow.cn/v1" value="${settings.llmOverride?.custom_url || ''}" class="text_pole">
+        </div>
+        <div class="ec-field">
+          <label for="ec_llm_temperature">温度</label>
+          <input id="ec_llm_temperature" name="llmOverride.temperature" type="number" min="0" max="2" value="${settings.llmOverride?.temperature || 0}" step="0.1" class="text_pole">
+        </div>
+        <div class="ec-field">
+          <label for="ec_max_tokens">最大 Token</label>
+          <input id="ec_max_tokens" name="overrideMaxTokens" type="number" min="256" max="16384" value="${settings.overrideMaxTokens}" class="text_pole">
+          <small class="ec-hint">事件提取需要足够长度输出完整 JSON</small>
+        </div>
 
-        <h4>一键批量生成</h4>
-        <p style="color:#ffaa00;font-size:0.85em;">⚠ 将从整个聊天历史生成事件，消耗大量 Token。</p>
-        <div style="display:flex;gap:12px;">
-          <div style="flex:1;"><label for="ec_batch_slice">每批消息数</label>
-          <input id="ec_batch_slice" name="batchSliceSize" type="number" min="2" max="20" value="${settings.batchSliceSize}" class="text_pole"></div>
+        <h4>📜 增量事件生成</h4>
+        <p id="ec_batch_status" class="ec-hint" style="margin-bottom:8px;"></p>
+        <div class="ec-field">
+          <label for="ec_batch_slice">每批处理量</label>
+          <input id="ec_batch_slice" name="batchSliceSize" type="number" min="2" max="20" value="${settings.batchSliceSize}" class="text_pole">
         </div>
         <div style="margin:8px 0;">
-          <button id="ec_batch_start" class="menu_button">▶ 开始批量生成</button>
-          <button id="ec_batch_resume" class="menu_button" style="display:none;">↻ 继续上次进度</button>
+          <button id="ec_batch_start" class="menu_button">▶ 生成新增事件</button>
         </div>
         <div id="ec_batch_progress" style="display:none;">
-          <div style="width:100%;height:6px;background:#2a2a2a;border-radius:3px;margin-top:6px;"><div id="ec_batch_fill" style="height:100%;background:#4a6cf7;border-radius:3px;width:0;"></div></div>
-          <div id="ec_batch_text" style="font-size:0.8em;color:#999;margin-top:4px;"></div>
+          <div class="ec-progress-bar"><div id="ec_batch_fill" class="ec-progress-fill"></div></div>
+          <div id="ec_batch_text" class="ec-progress-text"></div>
         </div>
       </div>
     </div>`;
@@ -508,10 +578,14 @@ function bindSettingsEvents() {
     });
   });
 
-  // 批量生成按钮
+  // 批量生成按钮（增量模式）
   const btn = document.getElementById('ec_batch_start');
   if (!btn) return;
   let batchRunning = false;
+
+  // 初始化状态显示
+  updateBatchStatus();
+
   btn.addEventListener('click', () => {
     if (batchRunning) {
       console.warn('[Event Chronicle] ⚠ 批量生成已在运行中，跳过重复触发');
@@ -519,43 +593,57 @@ function bindSettingsEvents() {
     }
     const ctx = getContext();
     const msgs = ctx && Array.isArray(ctx.chat) ? ctx.chat : [];
-    console.log(`[Event Chronicle] 批量生成 — ${msgs.length} 条消息`);
     if (!msgs.length) { alert('未找到聊天消息。请先打开一个聊天对话。'); return; }
 
+    // 检查增量状态
+    const status = ecBridge.getIncrementalStatus(msgs.length);
+    if (!status.hasPending) {
+      if (typeof toastr !== 'undefined') toastr.info('暂无新的聊天内容，无需生成事件', 'Event Chronicle');
+      return;
+    }
+
     const sliceSize = parseInt(document.getElementById('ec_batch_slice')?.value || '12', 10);
-    if (!confirm(`⚠ 将处理 ${msgs.length} 条消息（每批 ${sliceSize} 条），预计消耗大量 Token。继续？`)) return;
+    if (!confirm(`检测到 ${status.pending} 条新消息待处理（每批 ${sliceSize} 条），预计消耗 Token。继续？`)) return;
 
     batchRunning = true;
     document.getElementById('ec_batch_start').style.display = 'none';
     document.getElementById('ec_batch_progress').style.display = 'block';
 
     ecBridge.startBatchGeneration({
-      chatId: getChatId(),
       messages: msgs,
       context: { name1: ctx.name1, name2: ctx.name2 },
-      sliceSize: sliceSize,
+      sliceSize,
+      onStart(s) {
+        const text = document.getElementById('ec_batch_text');
+        if (text) text.textContent = `开始处理 ${s.pending} 条新消息...`;
+      },
       onProgress(p) {
         const fill = document.getElementById('ec_batch_fill');
         const text = document.getElementById('ec_batch_text');
         if (fill) fill.style.width = Math.round(p.current / p.total * 100) + '%';
-        if (text) text.textContent = `Chunk ${p.chunk || 1} · ${p.current}/${p.total} · ${p.eventsFound} 个事件`;
+        if (text) text.textContent = `进度: ${p.current}/${p.total} · ${p.eventsFound} 个事件`;
       },
       onComplete(r) {
         batchRunning = false;
         const text = document.getElementById('ec_batch_text');
-        if (text) text.textContent = `完成！共 ${r.finalCount || r.totalEvents} 个事件。`;
+        if (r.noNew) {
+          if (text) text.textContent = '暂无新消息，无需处理';
+        } else {
+          if (text) text.textContent = `完成！新增 ${r.newEvents} 个事件，共 ${r.finalCount} 个`;
+        }
         updateChroniclePrompt();
-        saveSettingsDebounced();
+        ecBridge.saveAndPersist();
+        updateBatchStatus();
         setTimeout(() => {
           const startBtn = document.getElementById('ec_batch_start');
           const progress = document.getElementById('ec_batch_progress');
           if (startBtn) startBtn.style.display = '';
           if (progress) progress.style.display = 'none';
-        }, 5000);
+        }, 3000);
       },
       onError(e) {
         batchRunning = false;
-        alert('批量生成错误: ' + (e.message || e));
+        alert('增量生成错误: ' + (e.message || e));
         const startBtn = document.getElementById('ec_batch_start');
         if (startBtn) startBtn.style.display = '';
       },
@@ -563,17 +651,38 @@ function bindSettingsEvents() {
   });
 }
 
+function updateBatchStatus() {
+  try {
+    const ctx = getContext();
+    const msgs = ctx && Array.isArray(ctx.chat) ? ctx.chat : [];
+    const status = ecBridge.getIncrementalStatus(msgs.length);
+    const el = document.getElementById('ec_batch_status');
+    if (!el) return;
+
+    if (msgs.length === 0) {
+      el.textContent = '请先打开一个聊天对话';
+      el.style.color = '#888';
+    } else if (status.pending === 0) {
+      el.textContent = `✅ 已处理全部 ${status.total} 条消息，无新增内容`;
+      el.style.color = '#4caf50';
+    } else {
+      el.textContent = `已处理: ${status.processed} / ${status.total} · 待处理: ${status.pending} 条`;
+      el.style.color = '#ffaa00';
+    }
+  } catch (e) { /* ignore */ }
+}
+
 function setupStatusIndicator() {
   const updateBadge = () => {
     const b = document.getElementById('ec_status_badge');
     if (!b) return;
     if (!sdkReady) { b.textContent = '⚪ 待配置'; b.style.color = '#888'; return; }
-    const events = ecBridge.getEvents(getChatId());
+    const events = ecBridge.getEvents();
     b.textContent = `🟢 ${events.length} 个事件`;
     b.style.color = '#4caf50';
   };
   updateBadge();
-  setInterval(updateBadge, 15000);
+  setInterval(() => { updateBadge(); updateBatchStatus(); }, 15000);
 }
 
 // ---------------------------------------------------------------------------
@@ -598,7 +707,10 @@ function setupWandMenu() {
     </div>
   `);
 
-  $('#ecExtensionMenuItem').on('click', () => $('#ec_wand_buttons').toggle());
+  $('#ecExtensionMenuItem').on('click', (e) => {
+    e.stopPropagation();
+    $('#ec_wand_buttons').toggle();
+  });
   $('#ec_btn_extract').on('click', (e) => { e.stopPropagation(); manualExtract(); });
   $('#ec_btn_timeline').on('click', (e) => {
     e.stopPropagation();
@@ -615,13 +727,14 @@ function setupWandMenu() {
 const API = {
   isReady: () => sdkReady,
   getSettings,
-  getEvents: (id) => ecBridge.getEvents(id || getChatId()),
+  getEvents: () => ecBridge.getEvents(),
   getAllEvents: () => ecBridge.getAllEvents(),
-  updateEvent: (id, ev) => { const r = ecBridge.updateEvent(id, ev); saveSettingsDebounced(); return r; },
-  deleteEvent: (id, evId) => { const r = ecBridge.deleteEvent(id, evId); saveSettingsDebounced(); return r; },
-  exportMemory: (id, opts) => ecBridge.getMemory(id || getChatId(), opts),
-  startBatchGeneration: (opts) => ecBridge.startBatchGeneration({ ...opts, chatId: opts.chatId || getChatId(), context: opts.context || {} }),
-  getBatchProgress: (id) => ecBridge.getBatchProgress(id || getChatId()),
+  updateEvent: (ev) => { const r = ecBridge.updateEvent(ev); ecBridge.saveAndPersist(); return r; },
+  deleteEvent: (eventId) => { const r = ecBridge.deleteEvent(eventId); ecBridge.saveAndPersist(); return r; },
+  exportMemory: (opts) => ecBridge.getMemory(opts),
+  startBatchGeneration: (opts) => ecBridge.startBatchGeneration({ ...opts, context: opts.context || {} }),
+  getIncrementalStatus: (total) => ecBridge.getIncrementalStatus(total),
+  getBatchProgress: () => ecBridge.getBatchProgress(),
   getCurrentChatId: getChatId,
   manualExtract,
 };
@@ -650,7 +763,14 @@ export async function init() {
   // 4. 初始化设置 + 存储后端
   ensureSettings();
   ecBridge.setExtSettings(extension_settings);
-  console.log('[Event Chronicle] ✅ 设置 + 存储已初始化');
+  console.log('[Event Chronicle] ✅ 全局配置存储已初始化 (extension_settings)');
+
+  // 4.5 注入 per-chat metadata 存储
+  injectMetadata();
+  console.log('[Event Chronicle] ✅ per-chat 业务数据存储已初始化 (metadata)');
+
+  // 4.6 一次性迁移（旧数据从 extension_settings → metadata）
+  migrateToMetadata();
 
   // 5. 注册事件钩子（对标 Chronicle 模式）
   eventSource.on(event_types.CHARACTER_MESSAGE_RENDERED, onCharacterMessageRendered);

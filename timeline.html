@@ -1,75 +1,609 @@
 <!-- timeline.html — Event Chronicle 时间线浏览器 -->
-<!DOCTYPE html>
+<!-- 纯 CSS 实现，无 Tailwind 依赖 -->
+<!doctype html>
 <html lang="zh-CN">
-<head>
-  <meta charset="UTF-8">
-  <title>事件编年史 · 时间线</title>
-  <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #1a1a2e; color: #d4d4d4; padding: 20px; min-height: 100vh; }
-    .ec-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; padding-bottom: 12px; border-bottom: 1px solid #2a2a4a; }
-    .ec-header h1 { font-size: 20px; color: #fff; }
-    .ec-btn { padding: 6px 14px; border: none; border-radius: 4px; cursor: pointer; font-size: 13px; }
-    .ec-btn-primary { background: #4a6cf7; color: #fff; }
-    .ec-btn-secondary { background: #3a3a5a; color: #ccc; }
-    .ec-btn-danger { background: #d32f2f; color: #fff; }
-    .ec-filters { display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; }
-    .ec-filters select, .ec-filters input { padding: 5px 8px; border: 1px solid #3a3a5a; border-radius: 4px; background: #12122a; color: #d4d4d4; font-size: 13px; }
-    .ec-group-header { display: flex; align-items: center; gap: 8px; padding: 8px 0; margin: 20px 0 8px; border-bottom: 1px dashed #2a2a4a; }
-    .ec-group-header h3 { font-size: 14px; color: #aaa; }
-    .ec-badge { background: #2a2a4a; color: #999; font-size: 11px; padding: 2px 8px; border-radius: 10px; }
-    .ec-event-card { background: #16213e; border: 1px solid #2a2a4a; border-radius: 6px; padding: 12px 14px; margin-bottom: 6px; }
-    .ec-event-time { font-size: 11px; color: #666; margin-bottom: 2px; }
-    .ec-event-title { font-size: 15px; font-weight: 600; color: #fff; }
-    .ec-event-stars { font-size: 11px; }
-    .ec-star-filled { color: #ffd700; } .ec-star-empty { color: #3a3a5a; }
-    .ec-event-summary { font-size: 13px; color: #bbb; margin: 6px 0; }
-    .ec-event-meta { display: flex; gap: 6px; font-size: 11px; color: #888; margin-bottom: 6px; }
-    .ec-event-meta span { background: #1e1e3a; padding: 2px 6px; border-radius: 3px; }
-    .ec-tag { background: #2a2a5a; color: #8090d0; font-size: 10px; padding: 2px 6px; border-radius: 3px; margin-right: 3px; }
-    .ec-event-actions { display: flex; justify-content: flex-end; gap: 4px; margin-top: 6px; }
-    .ec-empty { text-align: center; padding: 60px 20px; color: #666; }
-    .ec-modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); z-index: 1000; justify-content: center; align-items: center; }
-    .ec-modal-overlay.active { display: flex; }
-    .ec-modal { background: #1e1e3a; border: 1px solid #3a3a5a; border-radius: 8px; padding: 20px; width: 480px; max-width: 90vw; }
-    .ec-modal h3 { color: #fff; margin-bottom: 14px; font-size: 16px; }
-    .ec-modal .ec-field { margin-bottom: 10px; }
-    .ec-modal label { display: block; font-size: 13px; color: #ccc; margin-bottom: 3px; }
-    .ec-modal input, .ec-modal textarea { width: 100%; padding: 6px 8px; border: 1px solid #3a3a5a; border-radius: 4px; background: #12122a; color: #d4d4d4; font-size: 13px; }
-    .ec-modal textarea { min-height: 70px; resize: vertical; }
-    .ec-modal-actions { display: flex; justify-content: flex-end; gap: 6px; margin-top: 14px; }
-  </style>
-</head>
-<body>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Visual Memory · 可视记忆</title>
+    <!-- 仅标题字体使用 Google Fonts，失败时降级为系统字体 -->
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&display=swap"
+      rel="stylesheet"
+    />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      /* ========== Reset & Base ========== */
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
 
-<div class="ec-header">
-  <h1>📜 事件编年史 · 时间线</h1>
-  <div><button class="ec-btn ec-btn-secondary" onclick="refresh()">⟳ 刷新</button> <button class="ec-btn ec-btn-primary" onclick="doExport()">📋 导出记忆</button></div>
-</div>
+      :root {
+        --bg: #11131c;
+        --bg-radial: radial-gradient(
+          circle at top right,
+          #1a1d2b 0%,
+          #11131c 100%
+        );
+        --surface: #1d1f29;
+        --surface-low: #191b24;
+        --surface-lowest: #0c0e17;
+        --surface-high: #282933;
+        --surface-highest: #32343e;
+        --outline: #464555;
+        --text: #e1e1ef;
+        --text-dim: #918fa1;
+        --text-muted: #6b6980;
+        --primary: #c3c0ff;
+        --primary-glow: rgba(195, 192, 255, 0.4);
+        --primary-bg: rgba(195, 192, 255, 0.08);
+        --primary-border: rgba(195, 192, 255, 0.15);
+        --secondary: #d2bbff;
+        --tertiary: #4edea3;
+        --amber: #fbbf24;
+        --error: #ffb4ab;
+        --error-bg: rgba(255, 180, 171, 0.1);
+        --glass-bg: rgba(29, 31, 41, 0.4);
+        --glass-border: rgba(255, 255, 255, 0.05);
+        --font-body:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", sans-serif;
+        --font-title: "Space Grotesk", "Segoe UI", system-ui, sans-serif;
+        --font-mono: "Geist", "SF Mono", "Consolas", monospace;
+      }
 
-<div class="ec-filters">
-  <select id="flt_loc" onchange="apply()"><option value="">所有地点</option></select>
-  <select id="flt_imp" onchange="apply()"><option value="0">全部重要度</option><option value="7">★7+ 关键</option><option value="9">★9+ 决定</option></select>
-  <input id="flt_search" placeholder="搜索事件..." oninput="apply()" style="flex:1;">
-  <span id="ec_count" style="color:#888;font-size:13px;"></span>
-</div>
+      body {
+        font-family: var(--font-body);
+        background: var(--bg);
+        background-image: var(--bg-radial);
+        color: var(--text);
+        min-height: 100vh;
+        overflow-x: hidden;
+        font-size: 14px;
+        line-height: 1.5;
+      }
 
-<div id="ec_container"><div class="ec-empty"><p>加载中...</p></div></div>
+      .material-symbols-outlined {
+        font-variation-settings:
+          "FILL" 0,
+          "wght" 400,
+          "GRAD" 0,
+          "opsz" 24;
+        display: inline-block;
+        vertical-align: middle;
+      }
 
-<div id="ec_modal" class="ec-modal-overlay">
-  <div class="ec-modal">
-    <h3 id="ec_modal_title">编辑事件</h3>
-    <div class="ec-field"><label>标题</label><input id="ec_edit_title"></div>
-    <div class="ec-field"><label>概述</label><textarea id="ec_edit_summary"></textarea></div>
-    <div class="ec-field"><label>重要度 (1-10)</label><input type="number" id="ec_edit_imp" min="1" max="10"></div>
-    <div class="ec-field"><label>参与者（逗号分隔）</label><input id="ec_edit_parts"></div>
-    <div class="ec-field"><label>地点</label><input id="ec_edit_loc"></div>
-    <div class="ec-field"><label>标签（逗号分隔）</label><input id="ec_edit_tags"></div>
-    <div class="ec-modal-actions"><button class="ec-btn ec-btn-secondary" onclick="closeModal()">取消</button><button class="ec-btn ec-btn-primary" onclick="saveEdit()">保存</button></div>
-  </div>
-</div>
+      /* ========== Header ========== */
+      .header {
+        position: sticky;
+        top: 0;
+        z-index: 50;
+        width: 100%;
+        background: rgba(17, 19, 28, 0.6);
+        backdrop-filter: blur(16px);
+        border-bottom: 1px solid rgba(70, 69, 85, 0.1);
+      }
+      .header-inner {
+        max-width: 960px;
+        margin: 0 auto;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 16px 24px;
+      }
+      .header-left {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+      .header-left .icon {
+        font-size: 32px;
+        color: var(--primary);
+      }
+      .header-title {
+        font-family: Georgia, serif;
+        font-size: 24px;
+        font-weight: 700;
+        letter-spacing: -0.03em;
+        color: var(--text);
+        line-height: 1.2;
+      }
+      .header-title .sub {
+        font-family: var(--font-body);
+        font-weight: 400;
+        font-size: 16px;
+        color: var(--text-muted);
+        margin-left: 8px;
+      }
+      .header-actions {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
 
-<script src="timeline.js"></script>
-<script src="editor.js"></script>
-</body>
+      /* ========== Buttons ========== */
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 8px 16px;
+        border-radius: 10px;
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+        cursor: pointer;
+        border: none;
+        transition: all 0.2s;
+        text-transform: uppercase;
+      }
+      .btn:active {
+        transform: scale(0.96);
+      }
+      .btn-ghost {
+        background: var(--surface);
+        color: var(--text-dim);
+        border: 1px solid rgba(70, 69, 85, 0.1);
+      }
+      .btn-ghost:hover {
+        background: var(--surface-high);
+      }
+      .btn-primary {
+        background: #6366f1;
+        color: #fff;
+        box-shadow: 0 4px 16px rgba(99, 102, 241, 0.25);
+      }
+      .btn-primary:hover {
+        opacity: 0.9;
+        box-shadow: 0 6px 24px rgba(99, 102, 241, 0.35);
+      }
+      .btn-danger {
+        background: var(--error-bg);
+        color: var(--error);
+        border: 1px solid rgba(255, 180, 171, 0.15);
+      }
+      .btn-danger:hover {
+        background: rgba(255, 180, 171, 0.18);
+      }
+      .btn .material-symbols-outlined {
+        font-size: 18px;
+      }
+
+      /* ========== Main ========== */
+      .main {
+        max-width: 960px;
+        margin: 0 auto;
+        padding: 32px 24px;
+      }
+
+      /* ========== Filter Bar ========== */
+      .filters {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 40px;
+        padding-bottom: 24px;
+        border-bottom: 1px solid rgba(70, 69, 85, 0.05);
+      }
+      .search-box {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex: 1;
+        max-width: 400px;
+        background: var(--surface-lowest);
+        border: 1px solid rgba(70, 69, 85, 0.2);
+        border-radius: 10px;
+        padding: 8px 12px;
+        transition: border-color 0.2s;
+      }
+      .search-box:focus-within {
+        border-color: rgba(195, 192, 255, 0.5);
+      }
+      .search-box .material-symbols-outlined {
+        font-size: 20px;
+        color: var(--text-muted);
+      }
+      .search-box input {
+        flex: 1;
+        background: transparent;
+        border: none;
+        outline: none;
+        color: var(--text);
+        font-size: 14px;
+      }
+      .search-box input::placeholder {
+        color: var(--text-muted);
+      }
+
+      .filter-select {
+        appearance: none;
+        background-color: var(--surface-lowest);
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%23918fa1'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'/%3E%3C/svg%3E");
+        background-repeat: no-repeat;
+        background-position: right 10px center;
+        background-size: 18px;
+        border: 1px solid rgba(70, 69, 85, 0.2);
+        border-radius: 10px;
+        padding: 8px 36px 8px 12px;
+        color: var(--text-dim);
+        font-size: 14px;
+        cursor: pointer;
+        transition: border-color 0.2s;
+      }
+      .filter-select:hover {
+        border-color: rgba(70, 69, 85, 0.4);
+      }
+      .filter-select:focus {
+        border-color: rgba(195, 192, 255, 0.5);
+        outline: none;
+      }
+      .filter-select option {
+        background: var(--surface);
+        color: var(--text);
+      }
+
+      .count {
+        margin-left: auto;
+        font-family: var(--font-mono);
+        font-size: 13px;
+        color: var(--text-muted);
+      }
+
+      /* ========== Group Header ========== */
+      .group-header {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 24px;
+      }
+      .group-header .icon {
+        font-size: 18px;
+        color: var(--primary);
+      }
+      .group-header h3 {
+        font-size: 14px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--text-dim);
+      }
+      .group-badge {
+        padding: 2px 10px;
+        border-radius: 9999px;
+        font-family: var(--font-mono);
+        font-size: 10px;
+        font-weight: 700;
+        background: var(--primary-bg);
+        color: var(--primary);
+        border: 1px solid var(--primary-border);
+      }
+
+      /* ========== Timeline ========== */
+      .timeline {
+        position: relative;
+        padding-left: 32px;
+        margin-left: 8px;
+      }
+      .timeline::before {
+        content: "";
+        position: absolute;
+        left: 7px;
+        top: 0;
+        bottom: 0;
+        width: 2px;
+        background: linear-gradient(
+          to bottom,
+          rgba(195, 192, 255, 0.3),
+          rgba(195, 192, 255, 0.05)
+        );
+      }
+      .timeline-end {
+        position: relative;
+        margin-bottom: 48px;
+      }
+      .timeline-end::before {
+        content: "";
+        position: absolute;
+        left: -25px;
+        top: 0;
+        width: 8px;
+        height: 8px;
+        background: var(--outline);
+        border-radius: 50%;
+      }
+
+      /* ========== Event Card ========== */
+      .event-item {
+        position: relative;
+        margin-bottom: 48px;
+      }
+      .event-node {
+        position: absolute;
+        left: -26px;
+        top: 20px;
+        width: 14px;
+        height: 14px;
+        background: var(--bg);
+        border: 2px solid var(--primary);
+        border-radius: 50%;
+        box-shadow: 0 0 8px var(--primary-glow);
+        z-index: 10;
+      }
+      .event-card {
+        background: var(--glass-bg);
+        backdrop-filter: blur(8px);
+        border: 1px solid var(--glass-border);
+        border-radius: 12px;
+        padding: 24px;
+        transition: all 0.3s;
+      }
+      .event-card:hover {
+        background: rgba(29, 31, 41, 0.55);
+        border-color: rgba(255, 255, 255, 0.08);
+      }
+      .event-card:hover .event-actions {
+        opacity: 1;
+      }
+
+      .event-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        margin-bottom: 12px;
+      }
+      .event-title {
+        font-size: 18px;
+        font-weight: 600;
+        color: var(--text);
+        margin-bottom: 6px;
+        transition: color 0.2s;
+      }
+      .event-card:hover .event-title {
+        color: var(--primary);
+      }
+      .event-summary {
+        font-size: 14px;
+        color: rgba(199, 196, 216, 0.8);
+        line-height: 1.6;
+        max-width: 560px;
+      }
+      .event-stars {
+        display: flex;
+        gap: 2px;
+        flex-shrink: 0;
+        margin-left: 16px;
+      }
+      .star {
+        font-size: 18px;
+        color: var(--amber);
+      }
+      .star-empty {
+        font-size: 18px;
+        color: var(--surface-highest);
+      }
+
+      .event-meta {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        font-size: 11px;
+        color: var(--text-muted);
+        margin-bottom: 16px;
+        font-family: var(--font-mono);
+        letter-spacing: 0.03em;
+      }
+      .event-meta .material-symbols-outlined {
+        font-size: 16px;
+      }
+
+      .event-foot {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-end;
+      }
+      .event-tags {
+        display: flex;
+        gap: 6px;
+        flex-wrap: wrap;
+      }
+      .tag {
+        padding: 3px 10px;
+        border-radius: 6px;
+        font-family: var(--font-mono);
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        background: var(--primary-bg);
+        color: rgba(195, 192, 255, 0.8);
+        border: 1px solid rgba(195, 192, 255, 0.1);
+      }
+
+      .event-actions {
+        display: flex;
+        gap: 6px;
+        opacity: 0;
+        transition: opacity 0.2s;
+      }
+
+      /* ========== Empty State ========== */
+      .empty {
+        text-align: center;
+        padding: 80px 20px;
+        color: var(--text-muted);
+      }
+      .empty .material-symbols-outlined {
+        font-size: 48px;
+        display: block;
+        margin-bottom: 12px;
+      }
+
+      /* ========== Modal ========== */
+      .modal-overlay {
+        display: none;
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.6);
+        backdrop-filter: blur(4px);
+        z-index: 1000;
+        justify-content: center;
+        align-items: center;
+      }
+      .modal-overlay.active {
+        display: flex;
+      }
+      .modal {
+        background: var(--glass-bg);
+        backdrop-filter: blur(8px);
+        border: 1px solid rgba(70, 69, 85, 0.2);
+        border-radius: 16px;
+        padding: 28px;
+        width: 480px;
+        max-width: 90vw;
+      }
+      .modal h3 {
+        font-family: var(--font-title);
+        font-size: 18px;
+        font-weight: 600;
+        color: var(--text);
+        margin-bottom: 20px;
+      }
+      .modal-field {
+        margin-bottom: 16px;
+      }
+      .modal-field label {
+        display: block;
+        font-size: 11px;
+        font-weight: 500;
+        color: var(--text-dim);
+        margin-bottom: 6px;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+      }
+      .modal-field input,
+      .modal-field textarea {
+        width: 100%;
+        background: var(--surface-lowest);
+        border: 1px solid rgba(70, 69, 85, 0.2);
+        border-radius: 10px;
+        padding: 10px 14px;
+        color: var(--text);
+        font-size: 14px;
+        font-family: var(--font-body);
+        transition: border-color 0.2s;
+      }
+      .modal-field input:focus,
+      .modal-field textarea:focus {
+        border-color: rgba(195, 192, 255, 0.5);
+        outline: none;
+      }
+      .modal-field textarea {
+        min-height: 80px;
+        resize: vertical;
+      }
+      .modal-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 10px;
+        margin-top: 24px;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- Header -->
+    <header class="header">
+      <div class="header-inner">
+        <div class="header-left">
+          <span class="material-symbols-outlined icon">auto_stories</span>
+          <h1 class="header-title">
+            Visual Memory<span class="sub">· 可视记忆</span>
+          </h1>
+        </div>
+        <div class="header-actions">
+          <button onclick="refresh()" class="btn btn-ghost">
+            <span class="material-symbols-outlined">refresh</span> 刷新
+          </button>
+          <button onclick="doExport()" class="btn btn-primary">
+            <span class="material-symbols-outlined">ios_share</span> 导出记忆
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <main class="main">
+      <!-- Filters -->
+      <div class="filters">
+        <div class="search-box">
+          <span class="material-symbols-outlined">search</span>
+          <input
+            id="flt_search"
+            oninput="apply()"
+            placeholder="搜索事件..."
+            type="text"
+          />
+        </div>
+        <select id="flt_loc" onchange="apply()" class="filter-select">
+          <option value="">所有地点</option>
+        </select>
+        <select id="flt_imp" onchange="apply()" class="filter-select">
+          <option value="0">全部重要度</option>
+          <option value="7">★7+ 关键</option>
+          <option value="9">★9+ 决定</option>
+        </select>
+        <span id="ec_count" class="count"></span>
+      </div>
+
+      <!-- Timeline Container -->
+      <div id="ec_container">
+        <div class="empty">
+          <span class="material-symbols-outlined">hourglass_empty</span>
+          <p>加载中...</p>
+        </div>
+      </div>
+    </main>
+
+    <!-- Edit Modal -->
+    <div id="ec_modal" class="modal-overlay">
+      <div class="modal">
+        <h3 id="ec_modal_title">编辑事件</h3>
+        <div class="modal-field">
+          <label>标题</label>
+          <input id="ec_edit_title" />
+        </div>
+        <div class="modal-field">
+          <label>概述</label>
+          <textarea id="ec_edit_summary"></textarea>
+        </div>
+        <div class="modal-field">
+          <label>重要度 (1-10)</label>
+          <input type="number" id="ec_edit_imp" min="1" max="10" />
+        </div>
+        <div class="modal-field">
+          <label>参与者（逗号分隔）</label>
+          <input id="ec_edit_parts" />
+        </div>
+        <div class="modal-field">
+          <label>地点</label>
+          <input id="ec_edit_loc" />
+        </div>
+        <div class="modal-field">
+          <label>标签（逗号分隔）</label>
+          <input id="ec_edit_tags" />
+        </div>
+        <div class="modal-actions">
+          <button onclick="closeModal()" class="btn btn-ghost">取消</button>
+          <button onclick="saveEdit()" class="btn btn-primary">保存</button>
+        </div>
+      </div>
+    </div>
+
+    <script src="timeline.js"></script>
+    <script src="editor.js"></script>
+  </body>
 </html>

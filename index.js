@@ -835,10 +835,10 @@ function setupWandMenu() {
     <div id="ec_wand_container">
       <div id="ecExtensionMenuItem" class="list-group-item flex-container flexGap5" style="cursor:pointer;">
         <div class="extensionsMenuExtensionButton" style="color:#ffd700;">📜</div>
-        <span>Event Chronicle</span>
+        <span>Visual Memory</span>
       </div>
       <div id="ec_wand_buttons" style="display:none;padding:8px 12px;">
-        <button id="ec_btn_extract" class="menu_button" style="display:block;width:100%;margin-bottom:4px;">🔍 手动提取事件</button>
+        <button id="ec_btn_extract" class="menu_button" style="display:block;width:100%;margin-bottom:4px;">🔍 立即提取事件</button>
         <button id="ec_btn_timeline" class="menu_button" style="display:block;width:100%;">📋 时间线浏览器</button>
       </div>
     </div>
@@ -855,9 +855,8 @@ function setupWandMenu() {
   $("#ec_btn_timeline").on("click", (e) => {
     e.stopPropagation();
     const chatId = encodeURIComponent(getChatId());
-    const url =
-      "/scripts/extensions/third-party/st-event-chronicle/timeline.html?chat=" +
-      chatId;
+    const extDir = new URL(".", import.meta.url).pathname;
+    const url = extDir + "timeline.html?chat=" + chatId;
     window.open(url, "_blank");
   });
 }

@@ -746,6 +746,14 @@ export function deleteEvent(eventId) {
   return true;
 }
 
+export function clearEvents() {
+  const count = loadEvents().length;
+  console.log(`[EC:Bridge] 🗑 clearEvents — 清空全部 ${count} 个事件`);
+  saveEvents([]);
+  saveBatchProgress({ lastProcessedIndex: 0, totalMessages: 0, completed: false });
+  console.log('[EC:Bridge] ✅ 所有事件已清空');
+}
+
 export function getMemory(opts) {
   return exportMemory(loadEvents(), opts);
 }

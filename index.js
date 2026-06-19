@@ -654,6 +654,13 @@ function injectSettingsUI() {
           <div class="ec-progress-bar"><div id="ec_batch_fill" class="ec-progress-fill"></div></div>
           <div id="ec_batch_text" class="ec-progress-text"></div>
         </div>
+
+        <div style="margin:12px 0 4px;border-top:1px solid rgba(255,255,255,0.06);padding-top:12px;">
+          <button id="ec_clear_events" style="width:max-content" class="menu_button danger">
+            <i class="fa-solid fa-trash-can"></i> 清空所有事件
+          </button>
+          <small class="ec-hint" style="display:block;margin-top:4px;">删除当前聊天的全部事件，此操作不可撤销</small>
+        </div>
       </div>
     </div>`;
   target.appendChild(div);
@@ -686,6 +693,19 @@ function bindSettingsEvents() {
       saveSettingsDebounced();
       console.log(`[Event Chronicle] 设置变更: ${name}=${value}`);
     });
+  });
+
+  // 清空所有事件按钮
+  document.getElementById("ec_clear_events")?.addEventListener("click", () => {
+    const events = ecBridge.getEvents();
+    if (!events.length) {
+      if (typeof toastr !== "undefined") toastr.warning("当前没有事件可清空", "Event Chronicle");
+      return;
+    }
+    if (!confirm(`⚠ 确定要清空当前聊天的全部 ${events.length} 个事件吗？\n\n此操作不可撤销！`)) return;
+    if (!confirm("再次确认：真的要删除所有事件吗？")) return;
+    API.clearEvents();
+    if (typeof toastr !== "undefined") toastr.success(`已清空 ${events.length} 个事件`, "Event Chronicle");
   });
 
   // 批量生成按钮（增量模式）
@@ -879,6 +899,10 @@ const API = {
     const r = ecBridge.deleteEvent(eventId);
     ecBridge.saveAndPersist();
     return r;
+  },
+  clearEvents: () => {
+    ecBridge.clearEvents();
+    ecBridge.saveAndPersist();
   },
   exportMemory: (opts) => ecBridge.getMemory(opts),
   startBatchGeneration: (opts) =>

@@ -124,6 +124,10 @@
         time = new Date(e.timestamp * 1000).toLocaleString();
       } catch (_) {}
     }
+    var srcBtn = e.source
+      ? '<button class="source-toggle" onclick="toggleSource(\'' + attr(e.id) + '\')">' +
+        icon("auto_stories") + " 来源消息 (" + e.source.count + ")</button>"
+      : "";
 
     return (
       '<div class="event-item">' +
@@ -157,12 +161,9 @@
       (e.location
         ? icon("location_on") + " <span>" + esc(e.location) + "</span>"
         : "") +
+      srcBtn +
       "</div>" +
       '<div class="event-actions">' +
-      (e.source
-        ? '<button class="btn btn-ghost" onclick="toggleSource(\'' + attr(e.id) + '\')">' +
-          icon("auto_stories") + " 来源消息 (" + e.source.count + ")</button>"
-        : "") +
       '<button class="btn btn-ghost" onclick="edit(\'' +
       attr(e.id) +
       "')\">" +
@@ -176,55 +177,104 @@
       "</div>" +
       "</div>" +
       (tags ? '<div class="event-tags">' + tags + "</div>" : "") +
-      '<div id="src_' + attr(e.id) + '" class="event-source" style="display:none;"></div>' +
+      '<div id="src_' + attr(e.id) + '" class="event-source"></div>' +
       "</div>" +
       "</div>"
     );
   }
 
+  function formatTime(sendDate) {
+    if (!sendDate) return "";
+    try {
+      return new Date(sendDate).toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+    } catch (_) {
+      return "";
+    }
+  }
+
+  function avatarLetter(name) {
+    if (!name) return "?";
+    return name.charAt(0).toUpperCase();
+  }
+
   window.toggleSource = function (eventId) {
     var el = document.getElementById("src_" + eventId);
     if (!el) return;
-    if (el.style.display !== "none") {
-      el.style.display = "none";
+
+    // 切换展开/折叠
+    if (el.classList.contains("open")) {
+      el.classList.remove("open");
       return;
     }
 
-    var ev = filtered.find(function (e) {
-      return e.id === eventId;
-    });
-    if (!ev || !ev.source) return;
+    // 首次展开时渲染内容
+    if (!el.dataset.loaded) {
+      var ev = filtered.find(function (e) {
+        return e.id === eventId;
+      });
+      if (!ev || !ev.source) return;
 
-    var msgs;
-    var a = api();
-    if (a && a.getMessagesByRange) {
-      msgs = a.getMessagesByRange(ev.source.range[0], ev.source.range[1]);
+      var msgs;
+      var a = api();
+      if (a && a.getMessagesByRange) {
+        msgs = a.getMessagesByRange(ev.source.range[0], ev.source.range[1]);
+      }
+
+      var h = "";
+      if (!msgs || !msgs.length) {
+        // 降级显示
+        h =
+          '<div class="source-fallback">' +
+          (ev.source.preview
+            ? '<div class="source-text">' +
+              esc(ev.source.preview) +
+              "...</div>" +
+              '<div class="source-hint">来源消息不可用，仅显示预览</div>'
+            : '<div class="source-text">来源消息不可用</div>') +
+          "</div>";
+      } else {
+        h =
+          '<div class="source-header">' +
+          icon("auto_stories") +
+          " 来源对话 · " +
+          msgs.length +
+          " 条消息</div>" +
+          '<div class="source-list">';
+        h += msgs
+          .map(function (m) {
+            var cls = m.is_user ? "source-user" : "source-char";
+            var time = formatTime(m.send_date);
+            return (
+              '<div class="source-msg ' +
+              cls +
+              '">' +
+              '<div class="source-avatar">' +
+              avatarLetter(m.name) +
+              "</div>" +
+              '<div class="source-bubble">' +
+              '<div class="source-name">' +
+              esc(m.name) +
+              "</div>" +
+              '<div class="source-text">' +
+              esc(m.mes) +
+              "</div>" +
+              (time
+                ? '<div class="source-time">' + esc(time) + "</div>"
+                : "") +
+              "</div></div>"
+            );
+          })
+          .join("");
+        h += "</div>";
+      }
+      el.innerHTML = h;
+      el.dataset.loaded = "1";
     }
 
-    if (!msgs || !msgs.length) {
-      el.innerHTML = ev.source.preview
-        ? '<div class="source-msg source-fallback"><div class="source-text">' +
-          esc(ev.source.preview) +
-          '...</div><div class="source-hint">来源消息不可用，仅显示预览</div></div>'
-        : '<div class="source-msg source-fallback"><div class="source-text" style="color:#888;">来源消息不可用</div></div>';
-    } else {
-      el.innerHTML = msgs
-        .map(function (m) {
-          return (
-            '<div class="source-msg ' +
-            (m.is_user ? "source-user" : "source-char") +
-            '">' +
-            '<div class="source-name">' +
-            esc(m.name) +
-            "</div>" +
-            '<div class="source-text">' +
-            esc(m.mes) +
-            "</div></div>"
-          );
-        })
-        .join("");
-    }
-    el.style.display = "block";
+    el.classList.add("open");
   };
 
   window.doExport = function () {
@@ -258,5 +308,11 @@
   window.addEventListener("DOMContentLoaded", function () {
     window.refresh();
     setTimeout(window.refresh, 2000);
+
+    // 事件委托：点击 source-text 切换截断/展开
+    document.addEventListener("click", function (e) {
+      var text = e.target.closest(".source-text");
+      if (text) text.classList.toggle("expanded");
+    });
   });
 })();

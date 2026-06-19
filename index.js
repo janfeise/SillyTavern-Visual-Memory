@@ -19,7 +19,6 @@ import {
   getContext,
   saveMetadataDebounced,
 } from "../../../extensions.js";
-import { callGenericPopup, POPUP_TYPE } from "../../../../popup.js";
 import * as ecBridge from "./ec-bridge.js";
 
 // ---------------------------------------------------------------------------
@@ -961,20 +960,21 @@ async function showNotice() {
     "以上阈值均可在扩展设置中配置。",
   ].join("<br>");
 
+  const plainMsg = msg.replace(/<[^>]+>/g, "");
+
   try {
     if (typeof callGenericPopup === "function") {
-      await callGenericPopup(msg, POPUP_TYPE.TEXT, "", {
+      const popupType = typeof POPUP_TYPE !== "undefined" ? POPUP_TYPE.TEXT : "text";
+      await callGenericPopup(msg, popupType, "", {
         okButton: "我已知晓",
       });
     } else {
-      alert(msg.replace(/<[^>]+>/g, ""));
+      alert(plainMsg);
     }
   } catch (e) {
     console.warn("[Event Chronicle] ⚠ 弹窗显示失败:", e);
     if (typeof toastr !== "undefined") {
-      toastr.warning(msg.replace(/<[^>]+>/g, ""), "Event Chronicle", {
-        timeOut: 10000,
-      });
+      toastr.warning(plainMsg, "Event Chronicle", { timeOut: 10000 });
     }
   }
 

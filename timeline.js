@@ -293,6 +293,39 @@
     } else alert("暂无事件可导出。");
   };
 
+  // ========== 主题切换 ==========
+  window.toggleTheme = function () {
+    var root = document.documentElement;
+    var current = root.getAttribute("data-theme") || "dark";
+    var next = current === "dark" ? "light" : "dark";
+    root.setAttribute("data-theme", next);
+    localStorage.setItem("ec-theme", next);
+    updateThemeIcon(next);
+  };
+
+  function updateThemeIcon(theme) {
+    var btn = document.getElementById("theme_toggle");
+    if (!btn) return;
+    var use = btn.querySelector("use");
+    if (use) {
+      use.setAttribute(
+        "href",
+        theme === "dark" ? "#icon-dark_mode" : "#icon-light_mode"
+      );
+    }
+  }
+
+  function initTheme() {
+    var saved = localStorage.getItem("ec-theme");
+    var theme =
+      saved ||
+      (window.matchMedia("(prefers-color-scheme: light)").matches
+        ? "light"
+        : "dark");
+    document.documentElement.setAttribute("data-theme", theme);
+    updateThemeIcon(theme);
+  }
+
   function esc(s) {
     if (!s) return "";
     var d = document.createElement("div");
@@ -306,6 +339,7 @@
   }
 
   window.addEventListener("DOMContentLoaded", function () {
+    initTheme();
     window.refresh();
     setTimeout(window.refresh, 2000);
 

@@ -30,9 +30,14 @@
         el.textContent = tr(key);
       }
     }
-    // 页面标题
+    // 页面标题 & 副标题（英文为空则隐藏）
     var sub = tr('ec.timeline.subtitle');
     document.title = 'Visual Memory' + (sub ? ' ' + sub : '');
+    var subEl = document.getElementById('ec_subtitle');
+    if (subEl) {
+      subEl.textContent = sub;
+      if (!sub) subEl.style.display = 'none';
+    }
   }
 
   // SVG 图标引用（依赖 HTML 中的 <svg sprite>）

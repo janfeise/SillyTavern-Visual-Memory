@@ -31,6 +31,18 @@ import {
 } from './lib/ec-sdk.mjs';
 
 // ---------------------------------------------------------------------------
+// i18n (由 index.js 注入)
+// ---------------------------------------------------------------------------
+
+let _translate = (key) => key;
+
+export function setTranslate(fn) {
+  _translate = fn;
+}
+
+function tr(key) { return _translate(key); }
+
+// ---------------------------------------------------------------------------
 // ID 生成 & 时间戳
 // ---------------------------------------------------------------------------
 
@@ -302,7 +314,7 @@ export async function extractEvents(messages, existingEvents, context, startInde
   }
 
   // 1. 格式化已有事件
-  let existingEventsText = '暂无。';
+  let existingEventsText = tr('ec.memory.noEvents');
   if (existingEvents && existingEvents.length) {
     existingEventsText = JSON.stringify(existingEvents.map(e => ({
       title: e.title, summary: e.summary, importance: e.importance,
@@ -488,7 +500,7 @@ export function exportMemory(events, opts) {
   const threshold = opts.highlightThreshold || 7;
   const title = opts.title || 'Event Chronicle Memory';
 
-  if (!events || !events.length) return `# ${title}\n\n_暂无事件记录。_`;
+  if (!events || !events.length) return `# ${title}\n\n_${tr("ec.memory.noEvents")}_`;
 
   const lines = [];
 
@@ -496,32 +508,32 @@ export function exportMemory(events, opts) {
   const imps = events.map(e => e.importance || 5);
   lines.push(`# ${title}`);
   lines.push('');
-  lines.push(`## 概述`);
-  lines.push(`${events.length} 个事件 · 重要度范围 ${Math.min(...imps)}–${Math.max(...imps)}`);
+  lines.push(`## ${tr("ec.memory.overview")}`);
+  lines.push(`${events.length} ${tr("ec.memory.eventsLabel")} · ${tr("ec.memory.importanceRange")} ${Math.min(...imps)}–${Math.max(...imps)}`);
   lines.push('');
 
   // 关键事件
   const keyEvents = events.filter(e => (e.importance || 5) >= threshold);
   if (keyEvents.length) {
-    lines.push(`## 关键事件 (重要度 ≥ ${threshold})`);
+    lines.push(`## ${tr("ec.memory.keyEventsLabel")} (≥ ${threshold})`);
     lines.push('');
     for (const e of keyEvents) {
-      lines.push(`### ${e.title || '未命名'} ${renderStars(e.importance || 5)}`);
+      lines.push(`### ${e.title || tr("ec.timeline.untitled")} ${renderStars(e.importance || 5)}`);
       lines.push(e.summary || '');
       lines.push('');
       const meta = [];
-      if (e.participants && e.participants.length) meta.push(`参与者: ${e.participants.join(', ')}`);
-      if (e.location) meta.push(`地点: ${e.location}`);
-      if (e.tags && e.tags.length) meta.push(`标签: ${e.tags.join(', ')}`);
+      if (e.participants && e.participants.length) meta.push(`${tr("ec.memory.participantsLabel")}: ${e.participants.join(', ')}`);
+      if (e.location) meta.push(`${tr("ec.memory.locationLabel")}: ${e.location}`);
+      if (e.tags && e.tags.length) meta.push(`${tr("ec.memory.tagsLabel")}: ${e.tags.join(', ')}`);
       if (meta.length) lines.push(meta.join(' | '));
       lines.push('');
     }
   }
 
   // 时间线表格
-  lines.push('## 时间线');
+  lines.push(`## ${tr("ec.memory.timeline")}`);
   lines.push('');
-  lines.push('| # | 事件 | ★ | 参与者 | 地点 |');
+  lines.push(`| # | ${tr("ec.memory.eventLabel")} | ★ | ${tr("ec.memory.participantsLabel")} | ${tr("ec.memory.locationLabel")} |`);
   lines.push('|---|------|---|--------|------|');
   events.forEach((e, i) => {
     lines.push(`| ${i + 1} | ${e.title || ''} | ${e.importance || ''} | ${(e.participants || []).join(', ') || '—'} | ${e.location || '—'} |`);

@@ -6,5 +6,9 @@
   "css": "style.css",
   "hooks": { "activate": "init" },
   "loading_order": 100,
-  "homePage": "https://github.com/janfeise/SillyTavern-Visual-Memory"
+  "homePage": "https://github.com/janfeise/SillyTavern-Visual-Memory",
+  "i18n": {
+    "zh-cn": "i18n/zh-cn.json",
+    "en": "i18n/en.json"
+  }
 }

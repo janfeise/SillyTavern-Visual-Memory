@@ -61,7 +61,114 @@ extension_settings['event-chronicle']
 | `lib/ec-sdk.mjs` | ~470 | SDK 纯函数 bundle (generated, do not edit) |
 | `timeline.html` + `timeline.js` + `editor.js` | — | 独立时间线浏览器窗口 |
 | `settings.html` | ~115 | 设置面板模板 (iframe 加载) |
-| `manifest.json` | 9 | ST 扩展声明 |
+| `manifest.json` | ~14 | ST 扩展声明 + i18n 声明 |
+| `i18n/zh-cn.json` | ~111 | 简体中文语言包 |
+| `i18n/en.json` | ~111 | English language pack |
+
+## 国际化 (i18n)
+
+采用 ST 官方 `manifest.json` i18n 方案，语言文件在扩展激活前自动加载。
+
+### 目录结构
+
+```
+st-extension/
+├── i18n/
+│   ├── zh-cn.json    # 简体中文（默认）
+│   └── en.json       # English
+└── manifest.json     # i18n 字段声明
+```
+
+### manifest.json
+
+```json
+{
+  "i18n": {
+    "zh-cn": "i18n/zh-cn.json",
+    "en": "i18n/en.json"
+  }
+}
+```
+
+ST 启动时自动 fetch 并调用 `addLocaleData()`，扩展代码无需手动加载。
+
+### 翻译 API
+
+| API | 用途 | 获取方式 |
+|---|---|---|
+| `translate(key)` | 按语义 key 查翻译 | `getContext().translate` |
+| `` t`text ${val}` `` | 标签模板字面量（带变量） | `getContext().t` |
+| `data-i18n="key"` | HTML 属性自动翻译 | ST MutationObserver |
+
+**重要**：`t` 是标签模板字面量，不是普通函数。`t('key')` 是错误用法。
+
+### 代码中的使用
+
+**index.js**（主入口）：
+```javascript
+// 顶部封装 helper
+let _translate = null;
+function initI18n() {
+  const ctx = getContext();
+  _translate = ctx.translate || ((key) => key);
+}
+function tr(key) { return _translate(key); }
+
+// init() 中调用
+initI18n();
+ecBridge.setTranslate(tr);
+
+// 使用
+toastr.info(tr("ec.toast.noNewEvents"), "Event Chronicle");
+toastr.success(_t`📜 提取完成 — 新增 ${count} 个事件`, "Event Chronicle");
+```
+
+**ec-bridge.js**（适配层）：
+```javascript
+// 通过依赖注入获取（与 _generateRaw 同模式）
+let _translate = (key) => key;
+export function setTranslate(fn) { _translate = fn; }
+function tr(key) { return _translate(key); }
+```
+
+**timeline.js / editor.js**（独立页面）：
+```javascript
+function tr(key) {
+  var a = api();  // window.opener.EventChronicle
+  if (a && a.translate) return a.translate(key);
+  return key;
+}
+```
+
+**timeline.html**（静态 HTML）：
+```html
+<button data-i18n="ec.timeline.refresh">刷新</button>
+<input data-i18n="[placeholder]ec.timeline.searchPlaceholder" placeholder="搜索事件..." />
+```
+
+ST 的 MutationObserver 自动翻译通过 `innerHTML` 动态注入的带 `data-i18n` 的元素。
+
+### Key 命名规范
+
+```
+ec.{module}.{feature}[.{detail}]
+```
+
+模块：`settings` / `toast` / `dialog` / `timeline` / `menu` / `status` / `notice` / `memory` / `editor` / `export`
+
+带变量的字符串用 `${0}`、`${1}` 占位符（ST 标签模板索引格式）。
+
+### 扩展新语言
+
+1. 创建 `i18n/xx-xx.json`（复制 en.json 修改 value）
+2. `manifest.json` 的 `i18n` 中加一行：`"xx-xx": "i18n/xx-xx.json"`
+
+### 不国际化的部分
+
+- `console.log` 开发日志（用户不可见）
+- `manifest.json` 的 `display_name`（ST 不翻译）
+- SVG 图标
+- 品牌名 "Visual Memory"
 
 ## Testing
 

@@ -8,13 +8,19 @@
     return window.EventChronicle || null;
   }
 
+  function tr(key) {
+    var a = api();
+    if (a && a.translate) return a.translate(key);
+    return key;
+  }
+
   window.edit = function(eventId) {
     var a = api(); if (!a) return;
     var ev = null, all = a.getAllEvents();
     for (var i = 0; i < all.length; i++) { if (all[i].id === eventId) { ev = all[i]; break; } }
-    if (!ev) { alert('未找到该事件。'); return; }
+    if (!ev) { alert(tr('ec.editor.notFound')); return; }
     curId = eventId;
-    document.getElementById('ec_modal_title').textContent = '编辑: ' + (ev.title || '未命名');
+    document.getElementById('ec_modal_title').textContent = tr('ec.editor.titleLabel') + ': ' + (ev.title || tr('ec.timeline.untitled'));
     document.getElementById('ec_edit_title').value = ev.title || '';
     document.getElementById('ec_edit_summary').value = ev.summary || '';
     document.getElementById('ec_edit_imp').value = ev.importance || 5;
@@ -30,7 +36,7 @@
     var a = api(); if (!a || !curId) return;
     var chatId = null, all = a.getAllEvents();
     for (var i = 0; i < all.length; i++) { if (all[i].id === curId) { chatId = all[i]._chatId; break; } }
-    if (!chatId) { alert('无法确定事件所属聊天。'); return; }
+    if (!chatId) { alert(tr('ec.editor.noChatId')); return; }
     var imp = parseInt(document.getElementById('ec_edit_imp').value, 10) || 5;
     var result = a.updateEvent(chatId, {
       id: curId, title: document.getElementById('ec_edit_title').value.trim(),
@@ -39,16 +45,16 @@
       location: document.getElementById('ec_edit_loc').value.trim(),
       tags: document.getElementById('ec_edit_tags').value.split(',').map(function(s) { return s.trim(); }).filter(Boolean),
     });
-    if (result) { closeModal(); window.refresh(); } else alert('更新失败。');
+    if (result) { closeModal(); window.refresh(); } else alert(tr('ec.editor.updateFailed'));
   };
 
   window.del = function(eventId) {
     var a = api(); if (!a) return;
     var chatId = null, all = a.getAllEvents(), title = eventId;
     for (var i = 0; i < all.length; i++) { if (all[i].id === eventId) { chatId = all[i]._chatId; title = all[i].title || eventId; break; } }
-    if (!chatId) { alert('无法确定事件所属聊天。'); return; }
-    if (!confirm('删除事件 "' + title + '"？此操作不可撤销。')) return;
-    if (a.deleteEvent(chatId, eventId)) window.refresh(); else alert('删除失败。');
+    if (!chatId) { alert(tr('ec.editor.noChatId')); return; }
+    if (!confirm(tr('ec.editor.deleteConfirm').replace('${0}', title))) return;
+    if (a.deleteEvent(chatId, eventId)) window.refresh(); else alert(tr('ec.editor.deleteFailed'));
   };
 
   document.addEventListener('DOMContentLoaded', function() {

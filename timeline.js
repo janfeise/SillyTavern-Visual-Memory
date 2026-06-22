@@ -4,6 +4,13 @@
     filtered = [];
   var chatId = new URLSearchParams(location.search).get("chat") || "";
 
+  // i18n
+  function tr(key) {
+    var a = api();
+    if (a && a.translate) return a.translate(key);
+    return key;
+  }
+
   // SVG 图标引用（依赖 HTML 中的 <svg sprite>）
   function icon(name) {
     return (
@@ -31,7 +38,7 @@
     var a = api();
     if (!a) {
       document.getElementById("ec_container").innerHTML =
-        '<div class="empty">' + icon("cloud_off") + "<p>扩展未连接</p></div>";
+        '<div class="empty">' + icon("cloud_off") + '<p>' + tr("ec.timeline.notConnected") + '</p></div>';
       return;
     }
     // 按当前聊天 ID 筛选事件，无 chatId 时回退到全部
@@ -45,7 +52,7 @@
       if (e.location) locs.add(e.location);
     });
     var sel = document.getElementById("flt_loc");
-    sel.innerHTML = '<option value="">所有地点</option>';
+    sel.innerHTML = '<option value="">' + tr("ec.timeline.allLocations") + '</option>';
     locs.forEach(function (l) {
       var o = document.createElement("option");
       o.value = l;
@@ -82,7 +89,7 @@
       return (b.timestamp || 0) - (a.timestamp || 0);
     });
     document.getElementById("ec_count").textContent =
-      filtered.length + " / " + all.length + " 个事件";
+      filtered.length + " / " + all.length + " " + tr("ec.timeline.events");
     render(filtered);
   };
 
@@ -92,7 +99,7 @@
       c.innerHTML =
         '<div class="empty">' +
         icon("hourglass_empty") +
-        "<p>暂无事件。开始聊天以构建编年史</p></div>";
+        '<p>' + tr("ec.timeline.emptyState") + '</p></div>';
       return;
     }
     var h = '<div class="timeline">';
@@ -129,9 +136,8 @@
         attr(e.id) +
         "')\">" +
         icon("auto_stories") +
-        " 来源消息 (" +
-        e.source.count +
-        ")</button>"
+        " " + tr("ec.timeline.sourceMessages").replace("${0}", e.source.count) +
+        "</button>"
       : "";
 
     return (
@@ -141,7 +147,7 @@
       '<div class="event-head">' +
       "<div>" +
       '<div class="event-title">' +
-      esc(e.title || "未命名") +
+      esc(e.title || tr("ec.timeline.untitled")) +
       "</div>" +
       (time
         ? '<div class="event-meta">' +
@@ -173,12 +179,12 @@
       attr(e.id) +
       "')\">" +
       icon("edit") +
-      " 编辑</button>" +
+      " " + tr("ec.timeline.edit") + "</button>" +
       '<button class="btn btn-danger" onclick="del(\'' +
       attr(e.id) +
       "')\">" +
       icon("delete") +
-      " 删除</button>" +
+      " " + tr("ec.timeline.delete") + "</button>" +
       "</div>" +
       "</div>" +
       (tags ? '<div class="event-tags">' + tags + "</div>" : "") +
@@ -239,16 +245,15 @@
             ? '<div class="source-text">' +
               esc(ev.source.preview) +
               "...</div>" +
-              '<div class="source-hint">来源消息不可用，仅显示预览</div>'
-            : '<div class="source-text">来源消息不可用</div>') +
+              '<div class="source-hint">' + tr("ec.timeline.sourceUnavailableHint") + '</div>'
+            : '<div class="source-text">' + tr("ec.timeline.sourceUnavailable") + '</div>') +
           "</div>";
       } else {
         h =
           '<div class="source-header">' +
           icon("auto_stories") +
-          " 来源对话 · " +
-          msgs.length +
-          " 条消息</div>" +
+          " " + tr("ec.timeline.sourceConversation").replace("${0}", msgs.length) +
+          "</div>" +
           '<div class="source-list">';
         h += msgs
           .map(function (m) {
@@ -290,12 +295,12 @@
       navigator.clipboard
         .writeText(mem)
         .then(function () {
-          alert("记忆 Prompt 已复制到剪贴板！");
+          alert(tr("ec.export.copied"));
         })
         .catch(function () {
           alert(mem);
         });
-    } else alert("暂无事件可导出。");
+    } else alert(tr("ec.export.noEvents"));
   };
 
   // ========== 主题切换 ==========

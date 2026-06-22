@@ -814,13 +814,13 @@
             <svg class="icon" viewBox="0 0 24 24" fill="currentColor">
               <use href="#icon-refresh" />
             </svg>
-            刷新
+            <span data-i18n="ec.timeline.refresh">刷新</span>
           </button>
           <button onclick="doExport()" class="btn btn-primary">
             <svg class="icon" viewBox="0 0 24 24" fill="currentColor">
               <use href="#icon-ios_share" />
             </svg>
-            导出记忆
+            <span data-i18n="ec.timeline.export">导出记忆</span>
           </button>
         </div>
       </div>
@@ -836,17 +836,18 @@
           <input
             id="flt_search"
             oninput="apply()"
+            data-i18n="[placeholder]ec.timeline.searchPlaceholder"
             placeholder="搜索事件..."
             type="text"
           />
         </div>
         <select id="flt_loc" onchange="apply()" class="filter-select">
-          <option value="">所有地点</option>
+          <option value="" data-i18n="ec.timeline.allLocations">所有地点</option>
         </select>
         <select id="flt_imp" onchange="apply()" class="filter-select">
-          <option value="0">全部重要度</option>
-          <option value="7">★7+ 关键</option>
-          <option value="9">★9+ 决定</option>
+          <option value="0" data-i18n="ec.timeline.allImportance">全部重要度</option>
+          <option value="7" data-i18n="ec.timeline.keyEvents">★7+ 关键</option>
+          <option value="9" data-i18n="ec.timeline.criticalEvents">★9+ 决定</option>
         </select>
         <span id="ec_count" class="count"></span>
       </div>
@@ -857,7 +858,7 @@
           <svg class="icon" viewBox="0 0 24 24" fill="currentColor">
             <use href="#icon-hourglass_empty" />
           </svg>
-          <p>加载中...</p>
+          <p data-i18n="ec.timeline.loading">加载中...</p>
         </div>
       </div>
     </main>
@@ -865,34 +866,34 @@
     <!-- Edit Modal -->
     <div id="ec_modal" class="modal-overlay">
       <div class="modal">
-        <h3 id="ec_modal_title">编辑事件</h3>
+        <h3 id="ec_modal_title" data-i18n="ec.editor.titleLabel">编辑事件</h3>
         <div class="modal-field">
-          <label>标题</label>
+          <label data-i18n="ec.editor.titleLabel">标题</label>
           <input id="ec_edit_title" />
         </div>
         <div class="modal-field">
-          <label>概述</label>
+          <label data-i18n="ec.editor.summaryLabel">概述</label>
           <textarea id="ec_edit_summary"></textarea>
         </div>
         <div class="modal-field">
-          <label>重要度 (1-10)</label>
+          <label data-i18n="ec.editor.importanceLabel">重要度 (1-10)</label>
           <input type="number" id="ec_edit_imp" min="1" max="10" />
         </div>
         <div class="modal-field">
-          <label>参与者（逗号分隔）</label>
+          <label data-i18n="ec.editor.participantsLabel">参与者（逗号分隔）</label>
           <input id="ec_edit_parts" />
         </div>
         <div class="modal-field">
-          <label>地点</label>
+          <label data-i18n="ec.editor.locationLabel">地点</label>
           <input id="ec_edit_loc" />
         </div>
         <div class="modal-field">
-          <label>标签（逗号分隔）</label>
+          <label data-i18n="ec.editor.tagsLabel">标签（逗号分隔）</label>
           <input id="ec_edit_tags" />
         </div>
         <div class="modal-actions">
-          <button onclick="closeModal()" class="btn btn-ghost">取消</button>
-          <button onclick="saveEdit()" class="btn btn-primary">保存</button>
+          <button onclick="closeModal()" class="btn btn-ghost" data-i18n="ec.editor.cancel">取消</button>
+          <button onclick="saveEdit()" class="btn btn-primary" data-i18n="ec.editor.save">保存</button>
         </div>
       </div>
     </div>

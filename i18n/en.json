@@ -82,6 +82,8 @@
   "ec.timeline.notConnected": "Extension not connected",
   "ec.timeline.sourceUnavailable": "Source messages unavailable",
   "ec.timeline.sourceUnavailableHint": "Source messages unavailable, showing preview only",
+  "ec.timeline.sourceMessages": "Source Messages (${0})",
+  "ec.timeline.sourceConversation": "Source Conversation · ${0} messages",
   "${0} / ${1} 个事件": "${0} / ${1} events",
   "来源消息 (${0})": "Source Messages (${0})",
   "来源对话 · ${0} 条消息": "Source Conversation · ${0} messages",

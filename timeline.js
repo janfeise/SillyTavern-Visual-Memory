@@ -11,6 +11,30 @@
     return key;
   }
 
+  /** 手动翻译页面静态 data-i18n 元素（popup 窗口无 ST MutationObserver） */
+  function localizeDOM() {
+    var elements = document.querySelectorAll('[data-i18n]');
+    for (var i = 0; i < elements.length; i++) {
+      var el = elements[i];
+      var key = el.getAttribute('data-i18n');
+      if (!key) continue;
+      // [attr]key 形式
+      if (key.charAt(0) === '[') {
+        var end = key.indexOf(']');
+        if (end > 0) {
+          var attr = key.substring(1, end);
+          var realKey = key.substring(end + 1);
+          el.setAttribute(attr, tr(realKey));
+        }
+      } else {
+        el.textContent = tr(key);
+      }
+    }
+    // 页面标题
+    var sub = tr('ec.timeline.subtitle');
+    document.title = 'Visual Memory' + (sub ? ' ' + sub : '');
+  }
+
   // SVG 图标引用（依赖 HTML 中的 <svg sprite>）
   function icon(name) {
     return (
@@ -350,6 +374,7 @@
 
   window.addEventListener("DOMContentLoaded", function () {
     initTheme();
+    localizeDOM();
     window.refresh();
     setTimeout(window.refresh, 2000);
 

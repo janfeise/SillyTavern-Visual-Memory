@@ -82,6 +82,8 @@
   "ec.timeline.notConnected": "扩展未连接",
   "ec.timeline.sourceUnavailable": "来源消息不可用",
   "ec.timeline.sourceUnavailableHint": "来源消息不可用，仅显示预览",
+  "ec.timeline.sourceMessages": "来源消息 (${0})",
+  "ec.timeline.sourceConversation": "来源对话 · ${0} 条消息",
   "${0} / ${1} 个事件": "${0} / ${1} 个事件",
   "来源消息 (${0})": "来源消息 (${0})",
   "来源对话 · ${0} 条消息": "来源对话 · ${0} 条消息",
